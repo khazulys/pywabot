@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # PyWaBot
 
 [![PyPI version](https://img.shields.io/pypi/v/pywabot.svg)](https://pypi.org/project/pywabot/)
