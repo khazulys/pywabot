@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # PyWaBot
 
 [![PyPI version](https://img.shields.io/pypi/v/pywabot.svg)](https://pypi.org/project/pywabot/)
@@ -282,3 +283,6 @@ This is an unofficial library and is not affiliated with or endorsed by WhatsApp
 ## License
 
 This project is licensed under the MIT License.
+=======
+# pywabot
+>>>>>>> e0e9a8ea1137003d81f49e8f80cf6128c086f1c5
