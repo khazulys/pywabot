@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+.env
+.venv
+env/
+venv/
+auth_info_baileys/
+*.log
+.idea/
+.vscode/
