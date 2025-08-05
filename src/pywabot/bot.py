@@ -307,13 +307,35 @@ class PyWaBot:
         response = await api_client.send_image_to_server(self.api_url, recipient_jid, image)
         return response.get('data') if response and response.get('success') else None
 
-    async def send_audio(self, recipient_jid, url):
+    async def send_audio(self, recipient_jid, url, mimetype='audio/mp4'):
         """
-        Sends an audio message.
+        Sends an audio message with a specific mimetype.
+
+        Args:
+            recipient_jid (str): The JID of the recipient.
+            url (str): A publicly accessible URL to the audio file.
+            mimetype (str): The mimetype of the audio. Crucial for compatibility.
+                          Examples: 'audio/mp4', 'audio/aac', 'audio/ogg; codecs=opus'.
+                          Defaults to 'audio/mp4'.
+
+        Raises:
+            ValueError: If the URL is invalid or the mimetype is not an audio type.
+            ConnectionError: If the bot is not connected.
         """
         if not self.is_connected:
             raise ConnectionError("Bot is not connected.")
-        audio = types.Audio(url=url)
+        
+        if not url or not url.startswith(('http://', 'https://')):
+            logger.error(f"Invalid audio URL provided: {url}. URL must be publicly accessible.")
+            raise ValueError("Audio URL must be a valid and publicly accessible http/https URL.")
+
+        if not mimetype or not mimetype.startswith('audio/'):
+            logger.error(f"Invalid mimetype for audio: '{mimetype}'. It must start with 'audio/'.")
+            raise ValueError("Invalid mimetype. Must be an audio type (e.g., 'audio/mp4').")
+
+        audio = types.Audio(url=url, mimetype=mimetype)
+        logger.info(f"Attempting to send audio from URL: {url} with mimetype: {mimetype} to {recipient_jid}")
+        
         response = await api_client.send_audio_to_server(self.api_url, recipient_jid, audio)
         return response.get('data') if response and response.get('success') else None
 

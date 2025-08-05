@@ -92,7 +92,7 @@ class Image:
 @dataclass
 class Audio:
     url: str
-    mimetype: str = 'audio/mpeg'
+    mimetype: str
 
 
 @dataclass
