@@ -35,9 +35,8 @@ def _get_api_url():
 class PyWaBot:
     """
     An asynchronous Python wrapper for the Baileys WhatsApp API.
-    ...
-    """
-    def __init__(self, session_name, api_key):
+    ...    """
+    def __init__(self, session_name, api_key, handle_media=True):
         """
         Initializes the PyWaBot instance.
 
@@ -45,6 +44,9 @@ class PyWaBot:
             session_name (str): The name for the WhatsApp session. This is required
                 to differentiate between multiple bot instances.
             api_key (str): The API key for authentication.
+            handle_media (bool): If True, the bot will automatically reply with
+                informative messages for media content like images, locations, etc.
+                Set to False to disable this behavior.
 
         Raises:
             ValueError: If `session_name` or `api_key` is not provided.
@@ -58,6 +60,7 @@ class PyWaBot:
         self.session_name = session_name
         self.api_url = _get_api_url()
         self.api_key = api_key
+        self.handle_media = handle_media
             
         self.websocket_url = self.api_url.replace('https', 'wss')
         self.is_connected = False
@@ -80,6 +83,31 @@ class PyWaBot:
         self._default_handler = func
         return func
 
+    async def _handle_media_message(self, msg: types.WaMessage):
+        """Sends an informative reply for various media types."""
+        reply_text = ""
+        if msg.image:
+            caption = msg.image.get('caption', 'No caption')
+            reply_text = f"🖼️ *Image Received*\n\n- *Caption:* {caption}\n- *Mimetype:* {msg.image.get('mimetype')}"
+        elif msg.video:
+            caption = msg.video.get('caption', 'No caption')
+            reply_text = f"📹 *Video Received*\n\n- *Caption:* {caption}\n- *Duration:* {msg.video.get('seconds')}s"
+        elif msg.audio:
+            reply_text = f"🎵 *Audio Received*\n\n- *Type:* {'Voice Note' if msg.audio.get('ptt') else 'Audio File'}\n- *Duration:* {msg.audio.get('seconds')}s"
+        elif msg.document:
+            reply_text = f"📄 *Document Received*\n\n- *Filename:* {msg.document.get('fileName')}\n- *Mimetype:* {msg.document.get('mimetype')}"
+        elif msg.location:
+            loc = msg.get_location()
+            maps_url = f"https://maps.google.com/?q={loc['latitude']},{loc['longitude']}"
+            reply_text = f"📍 *Location Received*\n\n- *Coordinates:* {loc['latitude']:.5f}, {loc['longitude']:.5f}\n- *Details:* {loc.get('comment') or 'N/A'}\n- *View on Maps:* {maps_url}"
+        elif msg.live_location:
+            live_loc = msg.get_live_location()
+            maps_url = f"https://maps.google.com/?q={live_loc['latitude']},{live_loc['longitude']}"
+            reply_text = f"🛰️ *Live Location Update*\n\n- *Caption:* {live_loc.get('caption') or 'N/A'}\n- *Speed:* {live_loc.get('speed', 0):.2f} m/s\n- *View on Maps:* {maps_url}"
+
+        if reply_text:
+            await self.send_message(msg.chat, reply_text, reply_chat=msg)
+
     async def _process_incoming_message(self, raw_message):
         """Processes incoming raw messages from the WebSocket."""
         msg = types.WaMessage(raw_message)
@@ -87,6 +115,7 @@ class PyWaBot:
             return
         
         handler_found = False
+        # Command handling
         if msg.text:
             clean_text = msg.text.strip()
             for command, handler in self._command_handlers.items():
@@ -95,8 +124,18 @@ class PyWaBot:
                     handler_found = True
                     break
         
-        if not handler_found and self._default_handler:
-            await self._default_handler(self, msg)
+        # If no command handler was found, check for media or default handler
+        if not handler_found:
+            is_media = any([msg.image, msg.video, msg.audio, msg.document, msg.location, msg.live_location])
+            
+            # If it's media and the feature is enabled, handle it
+            if is_media and self.handle_media:
+                await self._handle_media_message(msg)
+                handler_found = True
+
+            # If still no handler was found (e.g., plain text with no command), use default
+            if not handler_found and self._default_handler:
+                await self._default_default_handler(self, msg)
     
     async def connect(self):
         """

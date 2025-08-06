@@ -26,12 +26,26 @@ class WaMessage:
         self.image = self.message.get('imageMessage')
         self.video = self.message.get('videoMessage')
         self.audio = self.message.get('audioMessage')
+        self.live_location = self.message.get('liveLocationMessage')
 
     def get_location(self):
         if self.location:
             return {
                 'latitude': self.location.get('degreesLatitude'),
-                'longitude': self.location.get('degreesLongitude')
+                'longitude': self.location.get('degreesLongitude'),
+                'comment': self.location.get('comment')
+            }
+        return None
+
+    def get_live_location(self):
+        if self.live_location:
+            return {
+                'latitude': self.live_location.get('degreesLatitude'),
+                'longitude': self.live_location.get('degreesLongitude'),
+                'caption': self.live_location.get('caption'),
+                'speed': self.live_location.get('speedInMps'),
+                'degrees': self.live_location.get('degrees'),
+                'sequence': self.live_location.get('sequenceNumber')
             }
         return None
 
