@@ -10,8 +10,12 @@ import os
 
 import httpx  # type: ignore
 
-from ..exceptions import (APIError, AuthenticationError, APIKeyMissingError,
-                          PyWaBotConnectionError)
+from ..exceptions import (
+    APIError,
+    AuthenticationError,
+    APIKeyMissingError,
+    PyWaBotConnectionError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +88,8 @@ async def _make_request(client, method, url, **kwargs):
 
         logger.error(
             "API request failed: Status %d - %s",
-            e.response.status_code, error_message
+            e.response.status_code,
+            error_message,
         )
 
         if e.response.status_code in [401, 403]:
@@ -180,7 +185,11 @@ async def send_message_to_server(
     """
     async with _get_api_client(timeout=30.0) as client:
         payload = {"number": number, "message": message}
-        if reply_chat and 'messages' in reply_chat.raw and reply_chat.raw['messages']:
+        if (
+            reply_chat
+            and 'messages' in reply_chat.raw
+            and reply_chat.raw['messages']
+        ):
             payload["quotedMessage"] = reply_chat.raw['messages'][0]
         if mentions:
             payload["mentions"] = mentions
@@ -284,7 +293,9 @@ async def update_chat_on_server(api_url, jid, action, message=None):
         payload = {"jid": jid, "action": action}
         if message:
             payload["message"] = message
-        await _make_request(client, "post", f"{api_url}/chat/update", json=payload)
+        await _make_request(
+            client, "post", f"{api_url}/chat/update", json=payload
+        )
         return True
 
 
@@ -353,7 +364,7 @@ async def send_reaction_to_server(api_url, jid, message_id, from_me, emoji):
             "jid": jid,
             "messageId": message_id,
             "fromMe": from_me,
-            "emoji": emoji
+            "emoji": emoji,
         }
         return await _make_request(
             client, "post", f"{api_url}/send-reaction", json=payload
@@ -377,7 +388,7 @@ async def update_group_participants(api_url, jid, action, participants):
         payload = {
             "jid": jid,
             "action": action,
-            "participants": participants
+            "participants": participants,
         }
         return await _make_request(
             client, "post", f"{api_url}/group-participants-update", json=payload
@@ -422,8 +433,8 @@ async def send_gif_to_server(api_url, number, gif):
             "message": {
                 "video": {"url": gif.url},
                 "caption": gif.caption,
-                "gifPlayback": True
-            }
+                "gifPlayback": True,
+            },
         }
         return await _make_request(
             client, "post", f"{api_url}/send-message", json=payload
@@ -447,8 +458,8 @@ async def send_image_to_server(api_url, number, image):
             "number": number,
             "message": {
                 "image": {"url": image.url},
-                "caption": image.caption
-            }
+                "caption": image.caption,
+            },
         }
         return await _make_request(
             client, "post", f"{api_url}/send-message", json=payload
@@ -472,8 +483,8 @@ async def send_audio_to_server(api_url, number, audio):
             "number": number,
             "message": {
                 "audio": {"url": audio.url},
-                "mimetype": audio.mimetype
-            }
+                "mimetype": audio.mimetype,
+            },
         }
         return await _make_request(
             client, "post", f"{api_url}/send-message", json=payload
@@ -497,8 +508,8 @@ async def send_video_to_server(api_url, number, video):
             "number": number,
             "message": {
                 "video": {"url": video.url},
-                "caption": video.caption
-            }
+                "caption": video.caption,
+            },
         }
         return await _make_request(
             client, "post", f"{api_url}/send-message", json=payload
@@ -519,7 +530,9 @@ async def pin_unpin_chat_on_server(api_url, jid, pin):
     """
     async with _get_api_client() as client:
         payload = {"jid": jid, "pin": pin}
-        await _make_request(client, "post", f"{api_url}/chat/pin", json=payload)
+        await _make_request(
+            client, "post", f"{api_url}/chat/pin", json=payload
+        )
         return True
 
 
@@ -540,7 +553,11 @@ async def create_group_on_server(api_url, title, participants):
         response = await _make_request(
             client, "post", f"{api_url}/group-create", json=payload
         )
-        return response.get('data') if response and response.get('success') else None
+        return (
+            response.get('data')
+            if response and response.get('success')
+            else None
+        )
 
 
 async def list_sessions(api_url):

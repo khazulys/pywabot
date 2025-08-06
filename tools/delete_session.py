@@ -57,4 +57,45 @@ async def main():
         else:
             print(
                 "⚠️ Server responded with failure for deleting "
-                f
+                f"'{session_to_delete}'."
+            )
+
+    except PyWaBotAPIError as e:
+        if e.status_code == HTTPStatus.NOT_FOUND:
+            print(f"ℹ️ Session '{session_to_delete}' not found on the server.")
+        else:
+            print(
+                "❌ An error occurred during the deletion request: "
+                f"HTTP {e.status_code} - {e.message}"
+            )
+        return
+    except (ConnectionError, OSError) as e:
+        print(f"❌ A connection error occurred: {e}")
+        return
+
+    # --- Verification Step ---
+    print("\n🔎 Verifying deletion...")
+    await asyncio.sleep(1)  # Give the server a moment to process.
+
+    try:
+        sessions = await PyWaBot.list_sessions(api_key=api_key)
+        print(f"Current sessions on server: {sessions or 'None'}")
+
+        if session_to_delete not in sessions:
+            print(
+                "✔️ Verification successful! Session "
+                f"'{session_to_delete}' is no longer on the server."
+            )
+        else:
+            print(
+                "❌ Verification FAILED! Session "
+                f"'{session_to_delete}' still exists on the server."
+            )
+            print("   Please check the baileys-api-server logs for errors.")
+
+    except (PyWaBotAPIError, ConnectionError, OSError) as e:
+        print(f"❌ An error occurred during the verification request: {e}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
