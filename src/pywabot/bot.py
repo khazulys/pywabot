@@ -95,7 +95,7 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         self._default_handler = func
         return func
 
-    async def _handle_media_message(self, msg: types.WaMessage):
+    async def _handle_media_message(self, msg: types.WaMessage):  # pylint: disable=too-many-locals
         """Sends an informative reply for various media types."""
         reply_text = ""
         if msg.image:
@@ -145,20 +145,22 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
                     f"- *View on Maps:* {maps_url}"
                 )
         elif msg.live_location:
-            live_loc = msg.get_live_location()
-            if live_loc:
-                maps_url = (
-                    f"https://maps.google.com/?q={live_loc['latitude']},"
-                    f"{live_loc['longitude']}"
-                )
-                caption = live_loc.get('caption') or 'N/A'
-                speed = live_loc.get('speed', 0)
-                reply_text = (
-                    f"🛰️ *Live Location Update*\n\n"
-                    f"- *Caption:* {caption}\n"
-                    f"- *Speed:* {speed:.2f} m/s\n"
-                    f"- *View on Maps:* {maps_url}"
-                )
+            try:
+                live_loc = msg.get_live_location()
+                if live_loc:
+                    lat = live_loc.get('latitude')
+                    lon = live_loc.get('longitude')
+                    maps_url = f"https://maps.google.com/?q={lat},{lon}" if lat and lon else "N/A"
+                    caption = live_loc.get('caption') or 'N/A'
+                    speed = live_loc.get('speed', 0)
+                    reply_text = (
+                        f"🛰️ *Live Location Update*\n\n"
+                        f"- *Caption:* {caption}\n"
+                        f"- *Speed:* {speed:.2f} m/s\n"
+                        f"- *View on Maps:* {maps_url}"
+                    )
+            except (TypeError, KeyError) as e:
+                logger.error("Error processing live location message: %s", e)
 
         if reply_text:
             await self.send_message(msg.chat, reply_text, reply_chat=msg)
