@@ -1,7 +1,6 @@
 # PyWaBot
 
 [![PyPI version](https://img.shields.io/pypi/v/pywabot.svg)](https://pypi.org/project/pywabot/)
-[![Python versions](https://img.shields.io/pypi/pyversions/pywabot.svg)](https://pypi.org/project/pywabot/)
 
 **PyWaBot** is a powerful, asynchronous, and unofficial Python library for interacting with the WhatsApp Business Platform, using a Baileys-based API server. It provides a high-level, easy-to-use interface for sending messages, handling events, and managing your WhatsApp bot.
 

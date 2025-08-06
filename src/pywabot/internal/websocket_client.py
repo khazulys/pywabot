@@ -1,19 +1,25 @@
-import websockets
+"""WebSocket client for handling real-time communication with the server."""
+
 import asyncio
 import json
 import logging
 from urllib.parse import urlencode
 
+import websockets  # type: ignore
+
 logger = logging.getLogger(__name__)
 
-async def listen_for_messages(base_websocket_url, api_key, session_name, on_message_callback):
+
+async def listen_for_messages(
+    base_websocket_url, api_key, session_name, on_message_callback
+):
     """
     Connects to the WebSocket server and listens for incoming messages.
     """
     params = urlencode({'apiKey': api_key, 'sessionName': session_name})
     websocket_url = f"{base_websocket_url}/?{params}"
-    
-    logger.info(f"Attempting to connect to WebSocket URL: {base_websocket_url}/")
+
+    logger.info("Attempting to connect to WebSocket URL: %s/", base_websocket_url)
 
     while True:
         try:
@@ -29,29 +35,53 @@ async def listen_for_messages(base_websocket_url, api_key, session_name, on_mess
                             try:
                                 data = json.loads(data)
                             except json.JSONDecodeError:
-                                logger.warning(f"Could not decode inner JSON string: {data}")
-                                continue # Skip malformed message
+                                logger.warning(
+                                    "Could not decode inner JSON string: %s", data
+                                )
+                                continue  # Skip malformed message
 
-                        # Ensure the data is a dict and has the expected structure
-                        if isinstance(data, dict) and 'messages' in data and data['messages']:
+                        # Ensure data is a dict and has the expected structure
+                        if (
+                            isinstance(data, dict)
+                            and 'messages' in data
+                            and data['messages']
+                        ):
                             await on_message_callback(data)
                         else:
-                            logger.debug(f"Received non-message data or empty message list: {data}")
+                            logger.debug(
+                                "Received non-message data or empty message list: %s",
+                                data,
+                            )
 
                     except json.JSONDecodeError:
-                        logger.error(f"Failed to decode WebSocket message as JSON: {message}")
+                        logger.error(
+                            "Failed to decode WebSocket message as JSON: %s", message
+                        )
                     except websockets.exceptions.ConnectionClosed:
-                        logger.warning("WebSocket connection closed unexpectedly. Reconnecting...")
+                        logger.warning(
+                            "WebSocket connection closed unexpectedly. Reconnecting..."
+                        )
                         break
-                    except Exception as e:
-                        # Catch any other errors during message processing
-                        logger.error(f"Error processing WebSocket message: {e}")
+                    except (TypeError, KeyError) as e:
+                        # Catch specific errors during message processing
+                        logger.error("Error processing WebSocket message: %s", e)
 
         except websockets.exceptions.InvalidStatusCode as e:
-            logger.error(f"Server rejected WebSocket connection: HTTP {e.status_code}. Reconnecting in 5 seconds...")
-        except ConnectionRefusedError:
-            logger.error("WebSocket connection refused. Is the server running? Reconnecting in 5 seconds...")
-        except Exception as e:
-            logger.error(f"An unexpected WebSocket error occurred: {e}. Reconnecting in 5 seconds...")
-        
+            logger.error(
+                "Server rejected WebSocket connection: HTTP %s. "
+                "Reconnecting in 5 seconds...",
+                e.status_code,
+            )
+        except (
+            ConnectionRefusedError,
+            ConnectionResetError,
+            OSError,
+            websockets.exceptions.WebSocketException,
+        ) as e:
+            logger.error(
+                "A WebSocket connection error occurred: %s. "
+                "Reconnecting in 5 seconds...",
+                e,
+            )
+
         await asyncio.sleep(5)

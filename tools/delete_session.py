@@ -1,71 +1,60 @@
-import asyncio
-import json
-import os
+"""
+A command-line tool to delete a WhatsApp session from the PyWaBot server.
+
+This script connects to the server using a configured API key, issues a
+deletion command for a specified session, and then verifies that the session
+has been removed by listing the current sessions.
+"""
 import argparse
+import asyncio
+from http import HTTPStatus
+
 from pywabot import PyWaBot
+from pywabot.exceptions import PyWaBotAPIError
 
-API_KEY_FILE = ".api_key.json"
+from shared import get_api_key
 
-def get_api_key_from_file():
-    """Reads the API key from the JSON file."""
-    if not os.path.exists(API_KEY_FILE):
-        return None
-    with open(API_KEY_FILE, "r") as f:
-        try:
-            data = json.load(f)
-            return data.get("api_key")
-        except (json.JSONDecodeError, AttributeError):
-            return None
 
 async def main():
-    """Main function to handle session deletion and verification."""
+    """
+    Main function to handle session deletion and verification.
+
+    Parses command-line arguments for the session name, retrieves the API key,
+    and orchestrates the deletion and verification process.
+    """
     parser = argparse.ArgumentParser(
-        description="Delete a WhatsApp session from the PyWaBot server and verify its removal.",
-        epilog="Example: python tools/delete_session.py my_whatsapp_session"
+        description="Delete a WhatsApp session from the PyWaBot server.",
+        epilog="Example: python tools/delete_session.py my_whatsapp_session",
     )
-    parser.add_argument("session_name", help="The name of the session to delete.")
+    parser.add_argument(
+        "session_name", help="The name of the session to delete."
+    )
     args = parser.parse_args()
 
     session_to_delete = args.session_name
-    api_key = get_api_key_from_file()
+    api_key = get_api_key()
 
     if not api_key:
-        print(f"❌ Error: API key not found in {API_KEY_FILE}.")
-        print("Please generate one first using: python tools/api_key_manager.py generate")
+        print("❌ Error: API key not found.")
+        print(
+            "Please generate one first using: "
+            "python tools/api_key_manager.py generate"
+        )
         return
 
     print(f"▶️ Attempting to delete session: '{session_to_delete}'...")
 
     # --- Deletion Step ---
     try:
-        success = await PyWaBot.delete_session(session_to_delete, api_key=api_key)
+        success = await PyWaBot.delete_session(
+            session_to_delete, api_key=api_key
+        )
         if success:
-            print(f"✅ Server responded with success for deleting '{session_to_delete}'.")
+            print(
+                "✅ Server responded with success for deleting "
+                f"'{session_to_delete}'."
+            )
         else:
-            # This case might happen if the server returns success: false
-            print(f"⚠️ Server responded with failure for deleting '{session_to_delete}'.")
-            
-    except Exception as e:
-        print(f"❌ An error occurred during the deletion request: {e}")
-        return
-
-    # --- Verification Step ---
-    print("\n🔎 Verifying deletion...")
-    await asyncio.sleep(1)  # Give the server a moment just in case
-
-    try:
-        sessions = await PyWaBot.list_sessions(api_key=api_key)
-        print(f"Current sessions on server: {sessions or 'None'}")
-
-        if session_to_delete not in sessions:
-            print(f"✔️ Verification successful! Session '{session_to_delete}' is no longer on the server.")
-        else:
-            print(f"❌ Verification FAILED! Session '{session_to_delete}' still exists on the server.")
-            print("   Please check the baileys-api-server logs for errors.")
-
-    except Exception as e:
-        print(f"❌ An error occurred during the verification request: {e}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            print(
+                "⚠️ Server responded with failure for deleting "
+                f
