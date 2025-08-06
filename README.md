@@ -11,7 +11,7 @@
 - **Easy to Use**: High-level, intuitive methods for common WhatsApp actions.
 - **Rich Media Support**: Send and receive text, images, videos, documents, and more.
 - **Session Management**: Programmatically list and delete WhatsApp sessions.
-- **Secure**: Built-in API key authentication and obfuscated server URL.
+- **Secure**: Built-in API key authentication.
 - **Event-Driven**: Use decorators to easily handle incoming messages.
 
 ## Requirements
