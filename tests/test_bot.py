@@ -9,7 +9,7 @@ isolated and repeatable.
 """
 from unittest.mock import AsyncMock, patch
 
-import pytest
+import pytest  # pylint: disable=import-error
 
 from pywabot.bot import PyWaBot
 from pywabot.exceptions import PyWaBotConnectionError
@@ -153,7 +153,7 @@ async def test_start_listening(bot_instance, mock_websocket_client):
         bot_instance.websocket_url,
         bot_instance.api_key,
         bot_instance.session_name,
-        bot_instance._process_incoming_message,
+        bot_instance._process_incoming_message,  # pylint: disable=protected-access
     )
 
 
@@ -175,7 +175,9 @@ async def test_command_handler_is_called(bot_instance):
     }
 
     # Act
-    await bot_instance._process_incoming_message(test_message_data)
+    await bot_instance._process_incoming_message(  # pylint: disable=protected-access
+        test_message_data
+    )
 
     # Assert
     mock_handler.assert_called_once()
@@ -203,7 +205,9 @@ async def test_default_handler_is_called(bot_instance):
     }
 
     # Act
-    await bot_instance._process_incoming_message(test_message_data)
+    await bot_instance._process_incoming_message(  # pylint: disable=protected-access
+        test_message_data
+    )
 
     # Assert
     mock_default_handler.assert_called_once()

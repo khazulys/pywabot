@@ -10,7 +10,7 @@ import asyncio
 from http import HTTPStatus
 
 from pywabot import PyWaBot
-from pywabot.exceptions import PyWaBotAPIError
+from pywabot.exceptions import APIError
 
 from shared import get_api_key
 
@@ -60,7 +60,7 @@ async def main():
                 f"'{session_to_delete}'."
             )
 
-    except PyWaBotAPIError as e:
+    except APIError as e:
         if e.status_code == HTTPStatus.NOT_FOUND:
             print(f"ℹ️ Session '{session_to_delete}' not found on the server.")
         else:
@@ -93,7 +93,7 @@ async def main():
             )
             print("   Please check the baileys-api-server logs for errors.")
 
-    except (PyWaBotAPIError, ConnectionError, OSError) as e:
+    except (APIError, ConnectionError, OSError) as e:
         print(f"❌ An error occurred during the verification request: {e}")
 
 

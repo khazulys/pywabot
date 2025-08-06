@@ -50,7 +50,7 @@ def _get_api_url():
         raise ValueError("Could not determine a valid API URL.") from e
 
 
-class PyWaBot:
+class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-methods
     """
     An asynchronous Python wrapper for the Baileys WhatsApp API.
     """
@@ -133,7 +133,10 @@ class PyWaBot:
         elif msg.location:
             loc = msg.get_location()
             if loc:
-                maps_url = f"https://maps.google.com/?q={loc['latitude']},{loc['longitude']}"
+                maps_url = (
+                    f"https://maps.google.com/?q={loc['latitude']},"
+                    f"{loc['longitude']}"
+                )
                 comment = loc.get('comment') or 'N/A'
                 reply_text = (
                     f"📍 *Location Received*\n\n" 

@@ -5,7 +5,7 @@ import json
 import logging
 from urllib.parse import urlencode
 
-import websockets  # type: ignore
+import websockets  # pylint: disable=import-error
 
 logger = logging.getLogger(__name__)
 

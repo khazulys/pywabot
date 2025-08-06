@@ -8,7 +8,7 @@ import json
 import logging
 import os
 
-import httpx  # type: ignore
+import httpx  # pylint: disable=import-error
 
 from ..exceptions import (
     APIError,
