@@ -147,7 +147,10 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         elif msg.live_location:
             live_loc = msg.get_live_location()
             if live_loc:
-                maps_url = f"https://maps.google.com/?q={live_loc['latitude']},{live_loc['longitude']}"
+                maps_url = (
+                    f"https://maps.google.com/?q={live_loc['latitude']},"
+                    f"{live_loc['longitude']}"
+                )
                 caption = live_loc.get('caption') or 'N/A'
                 speed = live_loc.get('speed', 0)
                 reply_text = (
@@ -302,10 +305,10 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         """Forwards a given message to a recipient."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
-        if not message_to_forward or not message_to_forward._msg_info:
+        if not message_to_forward or not message_to_forward._msg_info:  # pylint: disable=protected-access
             return False
         return await api_client.forward_message_to_server(
-            self.api_url, recipient_jid, message_to_forward._msg_info
+            self.api_url, recipient_jid, message_to_forward._msg_info  # pylint: disable=protected-access
         )
 
     async def edit_msg(self, recipient_jid, message_id, new_text):

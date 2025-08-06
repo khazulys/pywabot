@@ -20,19 +20,19 @@ from pywabot.types import WaMessage
 
 
 @pytest.fixture
-def mock_api_client(mocker):
+def mock_api_client_fixture(mocker):
     """Fixture to mock the entire api_client module."""
     return mocker.patch('pywabot.bot.api_client', autospec=True)
 
 
 @pytest.fixture
-def mock_websocket_client(mocker):
+def mock_websocket_client_fixture(mocker):
     """Fixture to mock the websocket_client module."""
     return mocker.patch('pywabot.bot.websocket_client', autospec=True)
 
 
 @pytest.fixture
-def mock_get_api_url(mocker):
+def mock_get_api_url_fixture(mocker):
     """Fixture to mock the _get_api_url function to return a predictable URL."""
     return mocker.patch(
         'pywabot.bot._get_api_url', return_value="https://test.pywabot.com"
@@ -40,13 +40,13 @@ def mock_get_api_url(mocker):
 
 
 @pytest.fixture
-def bot_instance(mock_get_api_url):
+def bot_instance_fixture(mock_get_api_url_fixture):
     """
     Fixture to create a standard PyWaBot instance for tests.
     Note: The mocked _get_api_url is automatically used here.
     """
-    # The unused `mock_get_api_url` is required to ensure the patch is active.
-    _ = mock_get_api_url
+    # The unused `mock_get_api_url_fixture` is required to ensure the patch is active.
+    _ = mock_get_api_url_fixture
     bot = PyWaBot(session_name="test_session", api_key="test_api_key")
     return bot
 
@@ -54,12 +54,12 @@ def bot_instance(mock_get_api_url):
 # --- Test Cases ---
 
 
-def test_init_success(bot_instance):
+def test_init_success(bot_instance_fixture):
     """Test that PyWaBot initializes correctly with valid arguments."""
-    assert bot_instance.session_name == "test_session"
-    assert bot_instance.api_key == "test_api_key"
-    assert bot_instance.api_url == "https://test.pywabot.com"
-    assert bot_instance.websocket_url == "wss://test.pywabot.com"
+    assert bot_instance_fixture.session_name == "test_session"
+    assert bot_instance_fixture.api_key == "test_api_key"
+    assert bot_instance_fixture.api_url == "https://test.pywabot.com"
+    assert bot_instance_fixture.websocket_url == "wss://test.pywabot.com"
 
 
 def test_init_requires_session_name():
@@ -75,94 +75,94 @@ def test_init_requires_api_key():
 
 
 @pytest.mark.asyncio
-async def test_connect_success_when_uninitialized(bot_instance, mock_api_client):
+async def test_connect_success_when_uninitialized(bot_instance_fixture, mock_api_client_fixture):
     """Test a successful connection flow when the server is not yet connected."""
     # Arrange
-    mock_api_client.get_server_status.side_effect = ['uninitialized', 'connected']
-    mock_api_client.start_server_session.return_value = (True, "Success")
-    bot_instance.wait_for_connection = AsyncMock(return_value=True)
+    mock_api_client_fixture.get_server_status.side_effect = ['uninitialized', 'connected']
+    mock_api_client_fixture.start_server_session.return_value = (True, "Success")
+    bot_instance_fixture.wait_for_connection = AsyncMock(return_value=True)
 
     # Act
-    connected = await bot_instance.connect()
+    connected = await bot_instance_fixture.connect()
 
     # Assert
     assert connected is True
-    bot_instance.wait_for_connection.assert_called_once()
-    mock_api_client.start_server_session.assert_called_once_with(
+    bot_instance_fixture.wait_for_connection.assert_called_once()
+    mock_api_client_fixture.start_server_session.assert_called_once_with(
         "https://test.pywabot.com", "test_session"
     )
 
 
 @pytest.mark.asyncio
-async def test_connect_when_already_connected(bot_instance, mock_api_client):
+async def test_connect_when_already_connected(bot_instance_fixture, mock_api_client_fixture):
     """Test that connect() returns True immediately if already connected."""
     # Arrange
-    mock_api_client.get_server_status.return_value = 'connected'
+    mock_api_client_fixture.get_server_status.return_value = 'connected'
 
     # Act
-    connected = await bot_instance.connect()
+    connected = await bot_instance_fixture.connect()
 
     # Assert
     assert connected is True
-    assert bot_instance.is_connected is True
-    mock_api_client.start_server_session.assert_not_called()
+    assert bot_instance_fixture.is_connected is True
+    mock_api_client_fixture.start_server_session.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_send_message_when_connected(bot_instance, mock_api_client):
+async def test_send_message_when_connected(bot_instance_fixture, mock_api_client_fixture):
     """Test sending a message when the bot is connected."""
     # Arrange
-    bot_instance.is_connected = True
-    mock_api_client.send_message_to_server.return_value = {
+    bot_instance_fixture.is_connected = True
+    mock_api_client_fixture.send_message_to_server.return_value = {
         'success': True,
         'data': 'message_data',
     }
 
     # Act
-    result = await bot_instance.send_message("123@s.whatsapp.net", "Hello")
+    result = await bot_instance_fixture.send_message("123@s.whatsapp.net", "Hello")
 
     # Assert
-    mock_api_client.send_message_to_server.assert_called_once_with(
+    mock_api_client_fixture.send_message_to_server.assert_called_once_with(
         "https://test.pywabot.com", "123@s.whatsapp.net", "Hello", None, None
     )
     assert result == 'message_data'
 
 
 @pytest.mark.asyncio
-async def test_send_message_when_not_connected(bot_instance):
+async def test_send_message_when_not_connected(bot_instance_fixture):
     """Test sending a message raises ConnectionError if not connected."""
     # Arrange
-    bot_instance.is_connected = False
+    bot_instance_fixture.is_connected = False
 
     # Act & Assert
     with pytest.raises(PyWaBotConnectionError, match="Bot is not connected."):
-        await bot_instance.send_message("123@s.whatsapp.net", "Hello")
+        await bot_instance_fixture.send_message("123@s.whatsapp.net", "Hello")
 
 
 @pytest.mark.asyncio
-async def test_start_listening(bot_instance, mock_websocket_client):
+async def test_start_listening(bot_instance_fixture, mock_websocket_client_fixture):
     """Test that start_listening calls the websocket client correctly."""
     # Arrange
-    bot_instance.is_connected = True
+    bot_instance_fixture.is_connected = True
 
     # Act
-    await bot_instance.start_listening()
+    await bot_instance_fixture.start_listening()
 
     # Assert
-    mock_websocket_client.listen_for_messages.assert_called_once_with(
-        bot_instance.websocket_url,
-        bot_instance.api_key,
-        bot_instance.session_name,
-        bot_instance._process_incoming_message,  # pylint: disable=protected-access
+    mock_websocket_client_fixture.listen_for_messages.assert_called_once_with(
+        bot_instance_fixture.websocket_url,
+        bot_instance_fixture.api_key,
+        bot_instance_fixture.session_name,
+        bot_instance_fixture._process_incoming_message,  # pylint: disable=protected-access
     )
 
 
 @pytest.mark.asyncio
-async def test_command_handler_is_called(bot_instance):
+async def test_command_handler_is_called(bot_instance_fixture):
     """Test that a registered command handler is correctly called."""
     # Arrange
     mock_handler = AsyncMock()
-    bot_instance.handle_msg("/test")(mock_handler)
+    bot_instance_fixture.handle_msg("/test")(mock_handler)
 
     test_message_data = {
         'messages': [
@@ -175,7 +175,7 @@ async def test_command_handler_is_called(bot_instance):
     }
 
     # Act
-    await bot_instance._process_incoming_message(  # pylint: disable=protected-access
+    await bot_instance_fixture._process_incoming_message(  # pylint: disable=protected-access
         test_message_data
     )
 
@@ -188,11 +188,11 @@ async def test_command_handler_is_called(bot_instance):
 
 
 @pytest.mark.asyncio
-async def test_default_handler_is_called(bot_instance):
+async def test_default_handler_is_called(bot_instance_fixture):
     """Test that the default handler is called for non-command messages."""
     # Arrange
     mock_default_handler = AsyncMock()
-    bot_instance.on_message(mock_default_handler)
+    bot_instance_fixture.on_message(mock_default_handler)
 
     test_message_data = {
         'messages': [
@@ -205,7 +205,7 @@ async def test_default_handler_is_called(bot_instance):
     }
 
     # Act
-    await bot_instance._process_incoming_message(  # pylint: disable=protected-access
+    await bot_instance_fixture._process_incoming_message(  # pylint: disable=protected-access
         test_message_data
     )
 

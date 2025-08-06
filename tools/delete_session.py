@@ -1,18 +1,11 @@
 """
-A command-line tool to delete a WhatsApp session from the PyWaBot server.
-
-This script connects to the server using a configured API key, issues a
-deletion command for a specified session, and then verifies that the session
-has been removed by listing the current sessions.
-"""
 import argparse
 import asyncio
 from http import HTTPStatus
 
+from shared import get_api_key
 from pywabot import PyWaBot
 from pywabot.exceptions import APIError
-
-from shared import get_api_key
 
 
 async def main():
