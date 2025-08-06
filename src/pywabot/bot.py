@@ -102,32 +102,32 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
             caption = msg.image.get('caption', 'No caption')
             mimetype = msg.image.get('mimetype')
             reply_text = (
-                f"🖼️ *Image Received*\n\n" 
-                f"- *Caption:* {caption}\n" 
+                f"🖼️ *Image Received*\n\n"
+                f"- *Caption:* {caption}\n"
                 f"- *Mimetype:* {mimetype}"
             )
         elif msg.video:
             caption = msg.video.get('caption', 'No caption')
             duration = msg.video.get('seconds')
             reply_text = (
-                f"📹 *Video Received*\n\n" 
-                f"- *Caption:* {caption}\n" 
+                f"📹 *Video Received*\n\n"
+                f"- *Caption:* {caption}\n"
                 f"- *Duration:* {duration}s"
             )
         elif msg.audio:
             is_ptt = 'Voice Note' if msg.audio.get('ptt') else 'Audio File'
             duration = msg.audio.get('seconds')
             reply_text = (
-                f"🎵 *Audio Received*\n\n" 
-                f"- *Type:* {is_ptt}\n" 
+                f"🎵 *Audio Received*\n\n"
+                f"- *Type:* {is_ptt}\n"
                 f"- *Duration:* {duration}s"
             )
         elif msg.document:
             filename = msg.document.get('fileName')
             mimetype = msg.document.get('mimetype')
             reply_text = (
-                f"📄 *Document Received*\n\n" 
-                f"- *Filename:* {filename}\n" 
+                f"📄 *Document Received*\n\n"
+                f"- *Filename:* {filename}\n"
                 f"- *Mimetype:* {mimetype}"
             )
         elif msg.location:
@@ -139,9 +139,9 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
                 )
                 comment = loc.get('comment') or 'N/A'
                 reply_text = (
-                    f"📍 *Location Received*\n\n" 
-                    f"- *Coordinates:* {loc['latitude']:.5f}, {loc['longitude']:.5f}\n" 
-                    f"- *Details:* {comment}\n" 
+                    f"📍 *Location Received*\n\n"
+                    f"- *Coordinates:* {loc['latitude']:.5f}, {loc['longitude']:.5f}\n"
+                    f"- *Details:* {comment}\n"
                     f"- *View on Maps:* {maps_url}"
                 )
         elif msg.live_location:
@@ -154,9 +154,9 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
                 caption = live_loc.get('caption') or 'N/A'
                 speed = live_loc.get('speed', 0)
                 reply_text = (
-                    f"🛰️ *Live Location Update*\n\n" 
-                    f"- *Caption:* {caption}\n" 
-                    f"- *Speed:* {speed:.2f} m/s\n" 
+                    f"🛰️ *Live Location Update*\n\n"
+                    f"- *Caption:* {caption}\n"
+                    f"- *Speed:* {speed:.2f} m/s\n"
                     f"- *View on Maps:* {maps_url}"
                 )
 

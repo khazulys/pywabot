@@ -1,4 +1,12 @@
 """
+delete_session.py
+
+This script provides a CLI tool to delete a WhatsApp session from the PyWaBot server.
+
+It accepts a session name as an argument, attempts to delete it via the API,
+and verifies whether the session was successfully removed.
+"""
+
 import argparse
 import asyncio
 from http import HTTPStatus

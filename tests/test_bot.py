@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest  # pylint: disable=import-error
 
 from pywabot.bot import PyWaBot
-from pywabot.exceptions import PyWaBotConnectionError
+from pywabot.exceptions import PyWaBotConnectionError  # pylint: disable=import-error
 from pywabot.types import WaMessage
 
 
@@ -40,7 +40,7 @@ def mock_get_api_url_fixture(mocker):
 
 
 @pytest.fixture
-def bot_instance_fixture(mock_get_api_url_fixture):
+def bot_instance_fixture(mock_get_api_url_fixture):  # pylint: disable=redefined-outer-name
     """
     Fixture to create a standard PyWaBot instance for tests.
     Note: The mocked _get_api_url is automatically used here.
@@ -54,7 +54,7 @@ def bot_instance_fixture(mock_get_api_url_fixture):
 # --- Test Cases ---
 
 
-def test_init_success(bot_instance_fixture):
+def test_init_success(bot_instance_fixture):  # pylint: disable=redefined-outer-name
     """Test that PyWaBot initializes correctly with valid arguments."""
     assert bot_instance_fixture.session_name == "test_session"
     assert bot_instance_fixture.api_key == "test_api_key"
@@ -75,7 +75,7 @@ def test_init_requires_api_key():
 
 
 @pytest.mark.asyncio
-async def test_connect_success_when_uninitialized(bot_instance_fixture, mock_api_client_fixture):
+async def test_connect_success_when_uninitialized(bot_instance_fixture, mock_api_client_fixture):  # pylint: disable=redefined-outer-name
     """Test a successful connection flow when the server is not yet connected."""
     # Arrange
     mock_api_client_fixture.get_server_status.side_effect = ['uninitialized', 'connected']
@@ -94,7 +94,7 @@ async def test_connect_success_when_uninitialized(bot_instance_fixture, mock_api
 
 
 @pytest.mark.asyncio
-async def test_connect_when_already_connected(bot_instance_fixture, mock_api_client_fixture):
+async def test_connect_when_already_connected(bot_instance_fixture, mock_api_client_fixture):  # pylint: disable=redefined-outer-name
     """Test that connect() returns True immediately if already connected."""
     # Arrange
     mock_api_client_fixture.get_server_status.return_value = 'connected'
@@ -109,7 +109,7 @@ async def test_connect_when_already_connected(bot_instance_fixture, mock_api_cli
 
 
 @pytest.mark.asyncio
-async def test_send_message_when_connected(bot_instance_fixture, mock_api_client_fixture):
+async def test_send_message_when_connected(bot_instance_fixture, mock_api_client_fixture):  # pylint: disable=redefined-outer-name
     """Test sending a message when the bot is connected."""
     # Arrange
     bot_instance_fixture.is_connected = True
@@ -129,7 +129,7 @@ async def test_send_message_when_connected(bot_instance_fixture, mock_api_client
 
 
 @pytest.mark.asyncio
-async def test_send_message_when_not_connected(bot_instance_fixture):
+async def test_send_message_when_not_connected(bot_instance_fixture):  # pylint: disable=redefined-outer-name
     """Test sending a message raises ConnectionError if not connected."""
     # Arrange
     bot_instance_fixture.is_connected = False
@@ -140,7 +140,7 @@ async def test_send_message_when_not_connected(bot_instance_fixture):
 
 
 @pytest.mark.asyncio
-async def test_start_listening(bot_instance_fixture, mock_websocket_client_fixture):
+async def test_start_listening(bot_instance_fixture, mock_websocket_client_fixture):  # pylint: disable=redefined-outer-name
     """Test that start_listening calls the websocket client correctly."""
     # Arrange
     bot_instance_fixture.is_connected = True
@@ -158,7 +158,7 @@ async def test_start_listening(bot_instance_fixture, mock_websocket_client_fixtu
 
 
 @pytest.mark.asyncio
-async def test_command_handler_is_called(bot_instance_fixture):
+async def test_command_handler_is_called(bot_instance_fixture):  # pylint: disable=redefined-outer-name
     """Test that a registered command handler is correctly called."""
     # Arrange
     mock_handler = AsyncMock()
@@ -188,7 +188,7 @@ async def test_command_handler_is_called(bot_instance_fixture):
 
 
 @pytest.mark.asyncio
-async def test_default_handler_is_called(bot_instance_fixture):
+async def test_default_handler_is_called(bot_instance_fixture):  # pylint: disable=redefined-outer-name
     """Test that the default handler is called for non-command messages."""
     # Arrange
     mock_default_handler = AsyncMock()
@@ -228,3 +228,25 @@ async def test_list_sessions(mock_get_url, mock_list_sessions):
     # Assert
     mock_list_sessions.assert_called_once_with("https://static.test.com")
     assert sessions == ["session1", "session2"]
+
+
+@pytest.mark.asyncio
+@patch('pywabot.bot.api_client.delete_session', new_callable=AsyncMock)
+@patch('pywabot.bot._get_api_url', return_value="https://static.test.com")
+async def test_delete_session(mock_get_url, mock_delete_session):
+    """Test the static delete_session method."""
+    # Arrange
+    _ = mock_get_url  # Unused but required for patching
+    mock_delete_session.return_value = (True, "Session deleted")
+
+    # Act
+    result, message = await PyWaBot.delete_session(
+        session_name="session_to_delete", api_key="static_key"
+    )
+
+    # Assert
+    mock_delete_session.assert_called_once_with(
+        "https://static.test.com", "session_to_delete"
+    )
+    assert result is True
+    assert message == "Session deleted"
