@@ -2,20 +2,16 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/pywabot.svg)](https://pypi.org/project/pywabot/)
 
-**PyWaBot** is a powerful, asynchronous, and unofficial Python library for interacting with the WhatsApp Business Platform, using a Baileys-based API server. It provides a high-level, easy-to-use interface for sending messages, handling events, and managing your WhatsApp bot.
+**PyWaBot** is a powerful, asynchronous, and unofficial Python library for interacting with the WhatsApp Business Platform. Built on a Baileys-based API server, it provides a high-level, easy-to-use interface for sending messages, handling events, and managing your WhatsApp bot.
 
 ## Features
 
-- **Asynchronous by Design**: Built with `asyncio` for high performance.
-- **Easy to Use**: High-level, intuitive methods for common WhatsApp actions.
+- **Asynchronous by Design**: Built with `asyncio` for high performance and non-blocking operations.
+- **Easy to Use**: A high-level, intuitive API for common WhatsApp actions.
+- **Pairing Code Login**: Easily connect your bot by requesting a pairing code—no need to scan a QR code.
 - **Rich Media Support**: Send and receive text, images, videos, documents, and more.
-- **Session Management**: Programmatically list and delete WhatsApp sessions.
-- **Secure**: Built-in API key authentication.
-- **Event-Driven**: Use decorators to easily handle incoming messages.
-
-## Requirements
-
-- Python 3.8+
+- **Session Management**: Programmatically list and delete active WhatsApp sessions.
+- **Event-Driven**: Use simple decorators to handle incoming messages and commands.
 
 ## Installation
 
@@ -25,16 +21,18 @@ You can install PyWaBot directly from PyPI:
 pip install pywabot
 ```
 
-## Getting Started
+## Getting Started: Your First Connection
 
-Follow these steps to get your bot up and running.
+Follow these steps to get your bot connected and running in minutes.
 
-### 1. Generate an API Key
+### 1. Get Your API Key
 
-The library requires an API key to communicate with the server. A tool is included to generate a secure key.
+The library communicates with a secure API server that requires an API key. A utility script is included to generate one for you.
 
-From your project's root directory, create a file api_key_manager.py and copy-paste this code : 
+First, create a file named `api_key_manager.py` in your project's root directory and add the following code:
+
 ```python
+# tools/api_key_manager.py
 import secrets
 import json
 import os
@@ -65,14 +63,11 @@ def get_api_key():
 def main():
     parser = argparse.ArgumentParser(
         description="A simple tool to generate and manage the API key for PyWaBot.",
-        epilog="Example usage: python tools/api_key_manager.py generate"
+        epilog="Example usage: python api_key_manager.py generate"
     )
-    
     subparsers = parser.add_subparsers(dest="action", required=True, help="Available actions")
-    parser_generate = subparsers.add_parser("generate", help="Generate a new API key and save it.")
-    
-    parser_get = subparsers.add_parser("get", help="Get the currently saved API key.")
-
+    subparsers.add_parser("generate", help="Generate a new API key and save it.")
+    subparsers.add_parser("get", help="Get the currently saved API key.")
     args = parser.parse_args()
 
     if args.action == "generate":
@@ -82,200 +77,200 @@ def main():
         if key:
             print(f"API Key: {key}")
         else:
-            print(f"API key not found in {API_KEY_FILE}. "
-                  "Generate one using: python tools/api_key_manager.py generate")
+            print(f"API key not found. Generate one using: python api_key_manager.py generate")
 
 if __name__ == "__main__":
     main()
 ```
-and run :
+
+Now, run the script from your terminal to generate the key:
+
 ```bash
 python api_key_manager.py generate
 ```
-This will create a `.api_key.json` file in your project root containing your unique key.
 
-### 2. Write Your Bot
+This will create a `.api_key.json` file in your project root. Keep this file secure and do not share it.
 
-Here is a complete example of a simple echo bot.
+### 2. Connect Your Bot with a Pairing Code
 
-`example_bot.py`:
+Create a file named `my_bot.py` and use the following code to connect your bot. This example shows how to request a pairing code if the bot is not already connected.
+
 ```python
+# my_bot.py
 import asyncio
-import json
-import os
 from pywabot import PyWaBot
 
-API_KEY_FILE = ".api_key.json"
-
-def get_api_key_from_file():
-    if not os.path.exists(API_KEY_FILE):
-        return None
-    with open(API_KEY_FILE, "r") as f:
-        try:
-            data = json.load(f)
-            return data.get("api_key")
-        except (json.JSONDecodeError, AttributeError):
-            return None
-
-async def manage_sessions(api_key):
-    print("--- Session Management ---")
-    
-    print("\nListing available sessions...")
-    try:
-        sessions = await PyWaBot.list_sessions(api_key=api_key)
-        if sessions:
-            print("Found sessions:")
-            for session in sessions:
-                print(f"- {session}")
-        else:
-            print("No active sessions found.")
-    except Exception as e:
-        print(f"An error occurred while listing sessions: {e}")
+# --- Configuration ---
+# Give your session a unique name to distinguish it from other bots
+SESSION_NAME = "my_first_bot" 
+# Replace with the API key you generated
+API_KEY = "your_api_key"
 
 async def main():
-    print("Starting PyWaBot example...")
+    """Initializes the bot and connects using a pairing code if needed."""
+    bot = PyWaBot(session_name=SESSION_NAME, api_key=API_KEY)
 
-    api_key = get_api_key_from_file()
-    if not api_key:
-        print("\nERROR: API key not found!")
-        print("Please generate one by running the following command from your terminal:")
-        print("python tools/api_key_manager.py generate")
-        return
-
-    # You can run session management tasks before starting the bot.
-    await manage_sessions(api_key)
-
-    print("\n--- Bot Initialization ---")
-    # Use a unique session_name for each WhatsApp account you want to run.
-    session_name = "my_whatsapp_session"
-    bot = PyWaBot(session_name=session_name, api_key=api_key)
-
-    print(f"Connecting bot for session: '{session_name}'...")
+    print("Attempting to connect the bot...")
     if not await bot.connect():
-        print("\nFailed to connect. You may need to pair your device.")
-        phone_number = input("Enter your WhatsApp phone number (e.g., 6281234567890) to get a pairing code: ")
-        if phone_number:
-            try:
+        print("\nConnection failed. A pairing code is required.")
+        
+        try:
+            phone_number = input("Enter your WhatsApp phone number (e.g., 6281234567890): ")
+            if phone_number:
                 code = await bot.request_pairing_code(phone_number)
                 if code:
-                    print(f"\nPairing Code: {code}")
-                    print("Enter this code on your phone (WhatsApp > Linked Devices > Link with phone number).")
-                    print("Waiting for connection after pairing...")
+                    print(f"\n>>> Your Pairing Code: {code} <<<")
+                    print("Go to WhatsApp on your phone > Linked Devices > Link with phone number.")
+                    print("Enter the code to connect your bot.")
+                    
+                    print("\nWaiting for connection...")
                     if await bot.wait_for_connection(timeout=120):
                         print("Bot connected successfully!")
                     else:
-                        print("Connection timed out after pairing.")
-                        return
+                        print("Connection timed out. Please try running the script again.")
                 else:
-                    print("Could not request pairing code.")
-                    return
-            except Exception as e:
-                print(f"An error occurred while requesting pairing code: {e}")
-                return
-        else:
+                    print("Could not request a pairing code. Please check your API key and server status.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
             return
 
-    print("Bot is connected and listening for messages...")
+    print("Bot is connected and ready to listen for messages!")
+    # The bot will keep running until you stop it (e.g., with Ctrl+C)
+    await bot.start_listening()
 
-    @bot.on_message
-    async def handle_all_messages(client: PyWaBot, message):
-        if message.from_me:
-            return
-        
-        print(f"\n[Message Received] From: {message.sender_name} | Chat: {message.chat}")
-        print(f"-> Text: {message.text}")
-        
-        # Example: Reply to the message
-        await client.typing(message.sender, duration=2)
-        await client.send_message(
-            recipient_jid=message.chat,
-            text=f"Hi {message.sender_name}! You said: '{message.text}'"
-        )
-        print(f"Replied to {message.sender_name}")
-
+if __name__ == "__main__":
     try:
-        await bot.start_listening()
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nStopping bot...")
-    except Exception as e:
-        print(f"\nAn error occurred while listening for messages: {e}")
+        print("\nBot stopped.")
+```
+
+**To run your bot:**
+1.  Replace `"your_api_key"` with the key from your `.api_key.json` file.
+2.  Run the script: `python my_bot.py`.
+3.  When prompted, enter your WhatsApp phone number (including the country code, without `+` or `00`).
+4.  You will receive a pairing code in the terminal.
+5.  On your phone, go to **WhatsApp > Settings > Linked Devices > Link a device > Link with phone number instead** and enter the code.
+6.  Your bot will connect and be ready!
+
+## Simple Echo Bot Example
+
+Here is a complete example of a bot that replies to any message it receives.
+
+```python
+# echo_bot.py
+import asyncio
+from pywabot import PyWaBot
+
+# --- Configuration ---
+SESSION_NAME = "echo_bot_session"
+API_KEY = "your_api_key"
+
+# Initialize the bot
+bot = PyWaBot(session_name=SESSION_NAME, api_key=API_KEY)
+
+@bot.on_message
+async def echo_handler(message):
+    """This handler is triggered for any incoming message."""
+    # Ignore messages sent by the bot itself
+    if message.from_me:
+        return
+
+    print(f"Received message from {message.sender_name}: '{message.text}'")
+    
+    # Formulate a reply
+    reply_text = f"You said: '{message.text}'"
+    
+    # Simulate typing and send the reply
+    await bot.typing(message.chat, duration=1)
+    await bot.send_message(message.chat, reply_text, reply_chat=message)
+    print(f"Sent reply to {message.sender_name}")
+
+async def main():
+    """Connects the bot and starts listening for messages."""
+    print("Connecting echo bot...")
+    if await bot.connect():
+        print("Echo bot connected and listening!")
+        await bot.start_listening()
+    else:
+        print("Failed to connect. Please run the connection script first to pair your device.")
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 ```
 
-## Advanced Usage
+## Session Management
 
-### Sending Media
+You can programmatically manage your bot's sessions.
 
-You can easily send different types of media.
+### List Active Sessions
 
-```python
-# Send an image with a caption
-await bot.send_image(
-    recipient_jid="1234567890@s.whatsapp.net",
-    url="https://example.com/image.jpg",
-    caption="Check out this cool image!"
-)
-
-# Send a video
-await bot.send_video(
-    recipient_jid="1234567890@s.whatsapp.net",
-    url="https://example.com/video.mp4"
-)
-
-# Send an audio file
-await bot.send_audio(
-    recipient_jid="1234567890@s.whatsapp.net",
-    url="https://example.com/audio.mp3"
-)
-```
-
-### Session Management
-
-You can list and delete sessions directly from your code. This is useful for maintenance and managing multiple accounts.
+To see all sessions currently running on the server under your API key:
 
 ```python
 import asyncio
 from pywabot import PyWaBot
 
-async def manage_sessions(api_key):
-    print("--- Session Management ---")
+API_KEY = "your_api_key"
 
-    # List all sessions associated with the API key
+async def list_active_sessions():
+    """Fetches and prints all active session names."""
+    print("Listing active sessions...")
     try:
-        sessions = await PyWaBot.list_sessions(api_key=api_key)
+        sessions = await PyWaBot.list_sessions(api_key=API_KEY)
         if sessions:
-            print("Active sessions:", sessions)
+            print("Found active sessions:")
+            for session_name in sessions:
+                print(f"- {session_name}")
         else:
             print("No active sessions found.")
     except Exception as e:
-        print(f"Error listing sessions: {e}")
+        print(f"An error occurred: {e}")
 
-    # Delete a specific session
-    session_to_delete = "old_session_name"
-    print(f"\nAttempting to delete session: {session_to_delete}")
-    try:
-        success = await PyWaBot.delete_session(session_to_delete, api_key=api_key)
-        if success:
-            print(f"Session '{session_to_delete}' deleted successfully.")
-        else:
-            print(f"Failed to delete session '{session_to_delete}'.")
-    except Exception as e:
-        print(f"Error deleting session: {e}")
-
-# Remember to replace "YOUR_API_KEY" with your actual key
-# asyncio.run(manage_sessions(api_key="YOUR_API_KEY"))
+if __name__ == "__main__":
+    asyncio.run(list_active_sessions())
 ```
 
-## Troubleshooting
+### Delete a Session
 
-- **Pairing Code Timeout**: You have a limited time to enter the pairing code on your phone. If it expires, restart the bot to get a new code.
+To log out and delete a specific session from the server:
+
+```python
+import asyncio
+from pywabot import PyWaBot
+
+API_KEY = "your_api_key"
+SESSION_TO_DELETE = "my_first_bot" # The name of the session you want to delete
+
+async def delete_a_session():
+    """Deletes a specified session from the server."""
+    print(f"Attempting to delete session: '{SESSION_TO_DELETE}'...")
+    try:
+        success = await PyWaBot.delete_session(SESSION_TO_DELETE, api_key=API_KEY)
+        if success:
+            print(f"Session '{SESSION_TO_DELETE}' was successfully deleted.")
+        else:
+            print(f"Failed to delete session '{SESSION_TO_DELETE}'. It may not exist.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(delete_a_session())
+```
+
+## More Examples
+
+This library can do much more! For detailed examples on sending images, videos, GIFs, managing groups, handling media, and more, please check out the files in the `examples/` directory of this project.
+
+## Support & Community
+
+For questions, support, or to connect with other developers, join our community:
+
+[**Get Support on Lynk.id**](http://lynk.id/khazulys/s/qewrnvwlm48d)
 
 ## Disclaimer
 
-This is an unofficial library and is not affiliated with or endorsed by WhatsApp or Meta. Use it responsibly and in accordance with WhatsApp's terms of service.
+This is an unofficial library and is not affiliated with, authorized, maintained, sponsored, or endorsed by WhatsApp or Meta. Please use it responsibly and in accordance with WhatsApp's Terms of Service.
 
 ## License
 
