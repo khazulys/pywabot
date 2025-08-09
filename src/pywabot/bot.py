@@ -79,7 +79,6 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not api_key:
             raise ValueError("An api_key must be provided.")
 
-        os.environ["PYWABOT_API_KEY"] = api_key
         self.session_name = session_name
         self.api_url = _get_api_url()
         self.api_key = api_key
@@ -89,6 +88,47 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         self.is_connected = False
         self._command_handlers: Dict[str, MessageHandler] = {}
         self._default_handler: Optional[MessageHandler] = None
+        self._location_handler: Optional[MessageHandler] = None
+        self._user_states: Dict[str, Any] = {}
+
+    def set_user_state(self, chat_id: str, state: Any):
+        """
+        Sets the state for a specific user/chat.
+
+        Args:
+            chat_id (str): The chat JID (e.g., '6281234567890@s.whatsapp.net').
+            state (Any): The state to set for the user. Can be a string, dict, etc.
+        """
+        self._user_states[chat_id] = state
+        logger.debug("State set for %s: %s", chat_id, state)
+
+    def get_user_state(self, chat_id: str) -> Optional[Any]:
+        """
+        Retrieves the state for a specific user/chat.
+
+        Args:
+            chat_id (str): The chat JID.
+
+        Returns:
+            The user's state, or None if no state is set.
+        """
+        return self._user_states.get(chat_id)
+
+    def clear_user_state(self, chat_id: str) -> bool:
+        """
+        Clears the state for a specific user/chat.
+
+        Args:
+            chat_id (str): The chat JID.
+
+        Returns:
+            bool: True if a state was cleared, False otherwise.
+        """
+        if chat_id in self._user_states:
+            del self._user_states[chat_id]
+            logger.debug("State cleared for %s.", chat_id)
+            return True
+        return False
 
     def handle_msg(self, command: str) -> Callable[[MessageHandler], MessageHandler]:
         """
@@ -157,6 +197,33 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
                 await func(_, message)
 
         self._default_handler = wrapper
+        return func
+
+    def on_location(self, func: MessageHandler) -> MessageHandler:
+        """
+        A decorator to register a handler for incoming location messages.
+
+        This handler is checked after command handlers but before the default
+        media handler, allowing for stateful location processing.
+        """
+        sig = inspect.signature(func)
+        num_params = len(sig.parameters)
+
+        if num_params not in [1, 2]:
+            raise TypeError(
+                f"Location handler must accept 1 or 2 arguments, "
+                f"but it accepts {num_params}."
+            )
+
+        @functools.wraps(func)
+        async def wrapper(_: Any, message: types.WaMessage) -> None:
+            """Wrapper for the location handler."""
+            if num_params == 1:
+                await func(message)
+            else:
+                await func(_, message)
+
+        self._location_handler = wrapper
         return func
 
     async def _handle_media_message(self, msg: types.WaMessage):  # pylint: disable=too-many-locals
@@ -236,28 +303,37 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
             return
 
         handler_found = False
+        # 1. Check for command handlers first
         if msg.text:
             clean_text = msg.text.strip()
             for command, handler in self._command_handlers.items():
                 if clean_text.startswith(command):
-                    # The handler is now a wrapper that standardizes the call
                     await handler(self, msg)
                     handler_found = True
                     break
+        if handler_found:
+            return
 
-        if not handler_found:
-            is_media = any([
-                msg.image, msg.video, msg.audio,
-                msg.document, msg.location, msg.live_location
-            ])
+        # 2. Check for a specific location handler (for stateful replies)
+        if msg.location and self._location_handler:
+            await self._location_handler(self, msg)
+            handler_found = True
+            return
+        if handler_found:
+            return
 
-            if is_media and self.handle_media:
-                await self._handle_media_message(msg)
-                handler_found = True
+        # 3. Fallback to generic media handling
+        is_media = any([
+            msg.image, msg.video, msg.audio,
+            msg.document, msg.location, msg.live_location
+        ])
+        if is_media and self.handle_media:
+            await self._handle_media_message(msg)
+            handler_found = True
 
-            if not handler_found and self._default_handler:
-                # The default handler is also a wrapper
-                await self._default_handler(self, msg)
+        # 4. Fallback to the default message handler
+        if not handler_found and self._default_handler:
+            await self._default_handler(self, msg)
 
     async def connect(self) -> bool:
         """
@@ -266,19 +342,26 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         Returns:
             bool: True if the connection is successful, False otherwise.
         """
-        server_status = await api_client.get_server_status(self.api_url)
-        if server_status == 'server_offline':
-            return False
+        server_status = await api_client.get_server_status(
+            self.api_url,
+            self.api_key,
+            self.session_name
+        )
+        if server_status == 'offline':
+            # Attempt to start a new session if the server is running but
+            # the specific session is offline.
+            success, _ = await api_client.start_server_session(
+                self.api_url, self.api_key, self.session_name
+            )
+            if not success:
+                return False
+            return await self.wait_for_connection(timeout=15)
+
         if server_status == 'connected':
             self.is_connected = True
             return True
 
-        success, _ = await api_client.start_server_session(
-            self.api_url, self.session_name
-        )
-        if not success:
-            return False
-
+        # For other statuses, wait for a valid connection
         return await self.wait_for_connection(timeout=15)
 
     async def request_pairing_code(self, phone_number: str) -> Optional[str]:
@@ -289,7 +372,7 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
             )
             return None
         return await api_client.request_pairing_code(
-            self.api_url, phone_number, self.session_name
+            self.api_url, self.api_key, phone_number, self.session_name
         )
 
     async def wait_for_connection(self, timeout: int = 60) -> bool:
@@ -297,11 +380,13 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                status = await api_client.get_server_status(self.api_url)
+                status = await api_client.get_server_status(
+                    self.api_url, self.api_key, self.session_name
+                )
                 if status == 'connected':
                     self.is_connected = True
                     return True
-                if status == 'server_offline':
+                if status == 'server_offline': # Should not happen if API is up
                     return False
             except PyWaBotConnectionError:
                 # Ignore connection errors during polling and retry
@@ -321,7 +406,13 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         response = await api_client.send_message_to_server(
-            self.api_url, recipient_jid, text, reply_chat, mentions
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            text,
+            reply_chat,
+            mentions,
         )
         return response.get('data') if response and response.get('success') else None
 
@@ -371,15 +462,21 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         """Simulates 'typing...' presence in a chat for a given duration."""
         if not self.is_connected:
             return
-        await api_client.update_presence_on_server(self.api_url, jid, 'composing')
+        await api_client.update_presence_on_server(
+            self.api_url, self.api_key, self.session_name, jid, 'composing'
+        )
         await asyncio.sleep(duration)
-        await api_client.update_presence_on_server(self.api_url, jid, 'paused')
+        await api_client.update_presence_on_server(
+            self.api_url, self.api_key, self.session_name, jid, 'paused'
+        )
 
     async def get_group_metadata(self, jid: str) -> Optional[Dict[str, Any]]:
         """Retrieves metadata for a specific group."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
-        return await api_client.get_group_metadata(self.api_url, jid)
+        return await api_client.get_group_metadata(
+            self.api_url, self.api_key, self.session_name, jid
+        )
 
     async def forward_msg(
         self,
@@ -392,7 +489,11 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not message_to_forward or not message_to_forward._msg_info:  # pylint: disable=protected-access
             return False
         return await api_client.forward_message_to_server(
-            self.api_url, recipient_jid, message_to_forward._msg_info  # pylint: disable=protected-access
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            message_to_forward._msg_info,  # pylint: disable=protected-access
         )
 
     async def edit_msg(self, recipient_jid: str, message_id: str, new_text: str) -> bool:
@@ -400,7 +501,12 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         return await api_client.edit_message_on_server(
-            self.api_url, recipient_jid, message_id, new_text
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            message_id,
+            new_text,
         )
 
     async def mark_chat_as_read(self, message: types.WaMessage) -> bool:
@@ -408,14 +514,21 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         return await api_client.update_chat_on_server(
-            self.api_url, message.chat, 'read', message.raw['messages'][0]
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            message.chat,
+            'read',
+            message.raw['messages'][0],
         )
 
     async def mark_chat_as_unread(self, jid: str) -> bool:
         """Marks a chat as unread."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
-        return await api_client.update_chat_on_server(self.api_url, jid, 'unread')
+        return await api_client.update_chat_on_server(
+            self.api_url, self.api_key, self.session_name, jid, 'unread'
+        )
 
     async def send_poll(
         self,
@@ -427,7 +540,12 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         response = await api_client.send_poll_to_server(
-            self.api_url, recipient_jid, name, values
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            name,
+            values,
         )
         return response.get('data') if response and response.get('success') else None
 
@@ -442,13 +560,16 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
             return None
 
         media_data = await api_client.download_media_from_server(
-            self.api_url, message.raw['messages'][0]
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            message.raw['messages'][0],
         )
         if media_data:
             ext = media_message.get('mimetype').split('/')[1].split(';')[0]
             filename = media_message.get('fileName') or f"{message.id}.{ext}"
             filepath = os.path.join(path, filename)
-            with open(filepath, 'wb', encoding='utf-8') as f:
+            with open(filepath, 'wb') as f:
                 f.write(media_data)
             return filepath
         return None
@@ -458,7 +579,13 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         return await api_client.send_reaction_to_server(
-            self.api_url, message.chat, message.id, message.from_me, emoji
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            message.chat,
+            message.id,
+            message.from_me,
+            emoji,
         )
 
     async def update_group_participants(
@@ -471,7 +598,7 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         return await api_client.update_group_participants(
-            self.api_url, jid, action, participants
+            self.api_url, self.api_key, self.session_name, jid, action, participants
         )
 
     async def send_link_preview(
@@ -484,7 +611,31 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         response = await api_client.send_link_preview_to_server(
-            self.api_url, recipient_jid, url, text
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            url,
+            text,
+        )
+        return response.get('data') if response and response.get('success') else None
+
+    async def _send_media(
+        self,
+        recipient_jid: str,
+        message_payload: Dict[str, Any],
+        timeout: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Internal helper to send media messages."""
+        if not self.is_connected:
+            raise PyWaBotConnectionError("Bot is not connected.")
+        response = await api_client.send_media_to_server(
+            self.api_url,
+            self.api_key,
+            self.session_name,
+            recipient_jid,
+            message_payload,
+            timeout,
         )
         return response.get('data') if response and response.get('success') else None
 
@@ -495,13 +646,12 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         caption: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Sends a GIF message."""
-        if not self.is_connected:
-            raise PyWaBotConnectionError("Bot is not connected.")
-        gif = types.Gif(url=url, caption=caption)
-        response = await api_client.send_gif_to_server(
-            self.api_url, recipient_jid, gif
-        )
-        return response.get('data') if response and response.get('success') else None
+        message_payload = {
+            "video": {"url": url},
+            "caption": caption,
+            "gifPlayback": True,
+        }
+        return await self._send_media(recipient_jid, message_payload, timeout=30)
 
     async def send_image(
         self,
@@ -510,13 +660,8 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         caption: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Sends an image message."""
-        if not self.is_connected:
-            raise PyWaBotConnectionError("Bot is not connected.")
-        image = types.Image(url=url, caption=caption)
-        response = await api_client.send_image_to_server(
-            self.api_url, recipient_jid, image
-        )
-        return response.get('data') if response and response.get('success') else None
+        message_payload = {"image": {"url": url}, "caption": caption}
+        return await self._send_media(recipient_jid, message_payload, timeout=30)
 
     async def send_audio(
         self,
@@ -526,37 +671,14 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
     ) -> Optional[Dict[str, Any]]:
         """
         Sends an audio message with a specific mimetype.
-
-        Args:
-            recipient_jid (str): The JID of the recipient.
-            url (str): A publicly accessible URL to the audio file.
-            mimetype (str): The mimetype of the audio.
-
-        Raises:
-            ValueError: If the URL is invalid or the mimetype is not an audio type.
-            PyWaBotConnectionError: If the bot is not connected.
         """
-        if not self.is_connected:
-            raise PyWaBotConnectionError("Bot is not connected.")
-
         if not url or not url.startswith(('http://', 'https://')):
-            logger.error("Invalid audio URL provided: %s.", url)
             raise ValueError("URL must be a valid and publicly accessible.")
-
         if not mimetype or not mimetype.startswith('audio/'):
-            logger.error("Invalid mimetype for audio: '%s'.", mimetype)
             raise ValueError("Invalid mimetype. Must be an audio type.")
 
-        audio = types.Audio(url=url, mimetype=mimetype)
-        logger.info(
-            "Attempting to send audio from URL: %s with mimetype: %s to %s",
-            url, mimetype, recipient_jid
-        )
-
-        response = await api_client.send_audio_to_server(
-            self.api_url, recipient_jid, audio
-        )
-        return response.get('data') if response and response.get('success') else None
+        message_payload = {"audio": {"url": url}, "mimetype": mimetype}
+        return await self._send_media(recipient_jid, message_payload, timeout=30)
 
     async def send_video(
         self,
@@ -565,32 +687,31 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         caption: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Sends a video message."""
-        if not self.is_connected:
-            raise PyWaBotConnectionError("Bot is not connected.")
-        video = types.Video(url=url, caption=caption)
-        response = await api_client.send_video_to_server(
-            self.api_url, recipient_jid, video
-        )
-        return response.get('data') if response and response.get('success') else None
+        message_payload = {"video": {"url": url}, "caption": caption}
+        return await self._send_media(recipient_jid, message_payload, timeout=60)
 
     async def pin_chat(self, jid: str) -> bool:
         """Pins a chat to the top of the chat list."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
-        return await api_client.pin_unpin_chat_on_server(self.api_url, jid, True)
+        return await api_client.pin_unpin_chat_on_server(
+            self.api_url, self.api_key, self.session_name, jid, True
+        )
 
     async def unpin_chat(self, jid: str) -> bool:
         """Unpins a chat from the top of the chat list."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
-        return await api_client.pin_unpin_chat_on_server(self.api_url, jid, False)
+        return await api_client.pin_unpin_chat_on_server(
+            self.api_url, self.api_key, self.session_name, jid, False
+        )
 
     async def create_group(self, title: str, participants: List[str]) -> Optional[Dict[str, Any]]:
         """Creates a new group with the given title and participants."""
         if not self.is_connected:
             raise PyWaBotConnectionError("Bot is not connected.")
         return await api_client.create_group_on_server(
-            self.api_url, title, participants
+            self.api_url, self.api_key, self.session_name, title, participants
         )
 
     @staticmethod
@@ -598,23 +719,21 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         """Lists all available sessions on the Baileys API server."""
         if not api_key:
             raise ValueError("An api_key must be provided.")
-        os.environ["PYWABOT_API_KEY"] = api_key
         api_url = _get_api_url()
         if not api_url:
             return None
-        return await api_client.list_sessions(api_url)
+        return await api_client.list_sessions(api_url, api_key)
 
     @staticmethod
     async def delete_session(session_name: str, api_key: str) -> bool:
         """Deletes a specific session from the server."""
         if not api_key:
             raise ValueError("An api_key must be provided.")
-        os.environ["PYWABOT_API_KEY"] = api_key
         api_url = _get_api_url()
         if not api_url:
             return False
         logger.info("Requesting deletion of session: %s", session_name)
-        return await api_client.delete_session(api_url, session_name)
+        return await api_client.delete_session(api_url, api_key, session_name)
 
     async def start_listening(self) -> None:
         """Starts listening for incoming messages via WebSocket."""

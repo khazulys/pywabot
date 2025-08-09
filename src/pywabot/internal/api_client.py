@@ -2,11 +2,13 @@
 This module provides an asynchronous client for interacting with the Baileys API.
 
 It handles request creation, authentication, and error handling for all
-API endpoints used by the PyWaBot library.
+API endpoints used by the PyWaBot library. This client is designed to be
+stateless, requiring session information to be passed for each request
+to ensure proper multi-session isolation.
 """
 import json
 import logging
-import os
+from typing import Any, Dict, List, Optional
 
 import httpx  # pylint: disable=import-error
 
@@ -16,33 +18,34 @@ from ..exceptions import (
     APIKeyMissingError,
     PyWaBotConnectionError,
 )
+from .. import types
 
 logger = logging.getLogger(__name__)
 
 
-def _get_api_client(**kwargs):
+def _get_api_client(api_key: str, **kwargs) -> httpx.AsyncClient:
     """
     Creates and configures an httpx.AsyncClient with the necessary API key.
 
     Args:
+        api_key (str): The API key for the session.
         **kwargs: Additional keyword arguments to pass to the AsyncClient.
 
     Returns:
         httpx.AsyncClient: A configured asynchronous HTTP client.
 
     Raises:
-        APIKeyMissingError: If the PYWABOT_API_KEY environment variable is not set.
+        APIKeyMissingError: If the api_key is not provided.
     """
-    api_key = os.environ.get("PYWABOT_API_KEY")
     if not api_key:
-        raise APIKeyMissingError(
-            "API Key not found. Please set the PYWABOT_API_KEY environment variable."
-        )
+        raise APIKeyMissingError("An API Key must be provided for the request.")
     headers = {"X-API-Key": api_key}
     return httpx.AsyncClient(headers=headers, **kwargs)
 
 
-async def _make_request(client, method, url, **kwargs):
+async def _make_request(
+    client: httpx.AsyncClient, method: str, url: str, **kwargs
+) -> Optional[Dict[str, Any]]:
     """
     Makes an API request and handles responses and errors.
 
@@ -83,8 +86,7 @@ async def _make_request(client, method, url, **kwargs):
             response_data = e.response.json()
             error_message = response_data.get('message', e.response.text)
         except json.JSONDecodeError:
-            # Response is not valid JSON, use the raw text
-            pass
+            pass  # Response is not valid JSON, use the raw text
 
         logger.error(
             "API request failed: Status %d - %s",
@@ -103,22 +105,15 @@ async def _make_request(client, method, url, **kwargs):
         raise PyWaBotConnectionError(f"Failed to connect to the API: {e}") from e
 
 
-async def start_server_session(api_url, session_name):
-    """
-    Starts a new session on the Baileys server.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        session_name (str): The name for the new session.
-
-    Returns:
-        Tuple[bool, str]: A tuple of success status and a message.
-    """
-    async with _get_api_client() as client:
+async def start_server_session(
+    api_url: str, api_key: str, session_name: str
+) -> tuple[bool, str]:
+    """Starts a new session on the Baileys server."""
+    async with _get_api_client(api_key) as client:
         try:
             payload = {"sessionName": session_name}
             await _make_request(
-                client, "post", f"{api_url}/start-session", json=payload
+                client, "post", f"{api_url}/sessions/start", json=payload
             )
             return True, "Session initialized successfully."
         except APIError as e:
@@ -129,62 +124,49 @@ async def start_server_session(api_url, session_name):
             return False, str(e)
 
 
-async def get_server_status(api_url):
-    """
-    Retrieves the status of the Baileys server.
-
-    Args:
-        api_url (str): The base URL of the API server.
-
-    Returns:
-        Optional[str]: The server status (e.g., 'connected') or 'server_offline'.
-    """
+async def get_server_status(
+    api_url: str, api_key: str, session_name: str
+) -> str:
+    """Retrieves the status of a specific session."""
     try:
-        async with _get_api_client() as client:
-            data = await _make_request(client, "get", f"{api_url}/status")
-            return data.get('status') if data else 'server_offline'
-    except (PyWaBotConnectionError, APIKeyMissingError):
-        return 'server_offline'
+        async with _get_api_client(api_key) as client:
+            data = await _make_request(
+                client, "get", f"{api_url}/sessions/{session_name}/status"
+            )
+            return data.get('status', 'offline') if data else 'offline'
+    except (PyWaBotConnectionError, APIKeyMissingError, APIError):
+        return 'offline'
 
 
-async def request_pairing_code(api_url, phone_number, session_name):
-    """
-    Requests a pairing code for a new device.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        phone_number (str): The phone number to pair.
-        session_name (str): The session name to associate with the pairing.
-
-    Returns:
-        Optional[str]: The pairing code if successful, otherwise None.
-    """
-    async with _get_api_client(timeout=120.0) as client:
+async def request_pairing_code(
+    api_url: str, api_key: str, phone_number: str, session_name: str
+) -> Optional[str]:
+    """Requests a pairing code for a new device."""
+    async with _get_api_client(api_key, timeout=120.0) as client:
         payload = {"number": phone_number, "sessionName": session_name}
         data = await _make_request(
-            client, "post", f"{api_url}/pair-code", json=payload
+            client, "post", f"{api_url}/sessions/pair-code", json=payload
         )
         return data.get('code') if data else None
 
 
+# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_message_to_server(
-    api_url, number, message, reply_chat=None, mentions=None
-):
-    """
-    Sends a text message via the API.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        message (str): The text message to send.
-        reply_chat (Optional[WaMessage]): The message to reply to.
-        mentions (Optional[List[str]]): A list of JIDs to mention.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client(timeout=30.0) as client:
-        payload = {"number": number, "message": message}
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    number: str,
+    message: str,
+    reply_chat: Optional[types.WaMessage] = None,
+    mentions: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Sends a text message via the API for a specific session."""
+    async with _get_api_client(api_key, timeout=30.0) as client:
+        payload = {
+            "sessionName": session_name,
+            "number": number,
+            "message": message,
+        }
         if (
             reply_chat
             and 'messages' in reply_chat.raw
@@ -194,150 +176,128 @@ async def send_message_to_server(
         if mentions:
             payload["mentions"] = mentions
         return await _make_request(
-            client, "post", f"{api_url}/send-message", json=payload
+            client, "post", f"{api_url}/send/message", json=payload
         )
 
 
-async def update_presence_on_server(api_url, jid, state):
-    """
-    Updates the bot's presence status (e.g., 'composing').
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The chat JID where the presence is updated.
-        state (str): The presence state ('composing', 'paused', etc.).
-
-    Returns:
-        bool: True if the update was successful.
-    """
-    async with _get_api_client() as client:
-        payload = {"jid": jid, "state": state}
+async def update_presence_on_server(
+    api_url: str, api_key: str, session_name: str, jid: str, state: str
+) -> bool:
+    """Updates the bot's presence status for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {"sessionName": session_name, "jid": jid, "state": state}
         await _make_request(
-            client, "post", f"{api_url}/presence-update", json=payload
+            client, "post", f"{api_url}/presence/update", json=payload
         )
         return True
 
 
-async def get_group_metadata(api_url, jid):
-    """
-    Retrieves metadata for a specific group.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The group's JID.
-
-    Returns:
-        Optional[Dict[str, Any]]: The group metadata.
-    """
-    async with _get_api_client() as client:
+async def get_group_metadata(
+    api_url: str, api_key: str, session_name: str, jid: str
+) -> Optional[Dict[str, Any]]:
+    """Retrieves metadata for a specific group for a specific session."""
+    async with _get_api_client(api_key) as client:
+        params = {"sessionName": session_name}
         return await _make_request(
-            client, "get", f"{api_url}/group-metadata/{jid}"
+            client, "get", f"{api_url}/groups/{jid}/metadata", params=params
         )
 
 
-async def forward_message_to_server(api_url, jid, message_obj):
-    """
-    Forwards a message to a recipient.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The recipient's JID.
-        message_obj (Dict[str, Any]): The raw message object to forward.
-
-    Returns:
-        bool: True if the forward was successful.
-    """
-    async with _get_api_client() as client:
-        payload = {"jid": jid, "message": message_obj}
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def forward_message_to_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    jid: str,
+    message_obj: Dict[str, Any],
+) -> bool:
+    """Forwards a message to a recipient for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {
+            "sessionName": session_name,
+            "jid": jid,
+            "message": message_obj,
+        }
         await _make_request(
-            client, "post", f"{api_url}/forward-message", json=payload
+            client, "post", f"{api_url}/forward/message", json=payload
         )
         return True
 
 
-async def edit_message_on_server(api_url, jid, message_id, new_text):
-    """
-    Edits a previously sent message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The chat JID where the message is.
-        message_id (str): The ID of the message to edit.
-        new_text (str): The new text for the message.
-
-    Returns:
-        bool: True if the edit was successful.
-    """
-    async with _get_api_client() as client:
-        payload = {"jid": jid, "messageId": message_id, "newText": new_text}
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def edit_message_on_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    jid: str,
+    message_id: str,
+    new_text: str,
+) -> bool:
+    """Edits a previously sent message for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {
+            "sessionName": session_name,
+            "jid": jid,
+            "messageId": message_id,
+            "newText": new_text,
+        }
         await _make_request(
-            client, "post", f"{api_url}/edit-message", json=payload
+            client, "post", f"{api_url}/edit/message", json=payload
         )
         return True
 
 
-async def update_chat_on_server(api_url, jid, action, message=None):
-    """
-    Updates a chat's state (e.g., 'read', 'unread').
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The chat JID to update.
-        action (str): The action to perform ('read', 'unread', etc.).
-        message (Optional[Dict[str, Any]]): The message object for context.
-
-    Returns:
-        bool: True if the update was successful.
-    """
-    async with _get_api_client() as client:
-        payload = {"jid": jid, "action": action}
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def update_chat_on_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    jid: str,
+    action: str,
+    message: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Updates a chat's state for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {"sessionName": session_name, "jid": jid, "action": action}
         if message:
             payload["message"] = message
         await _make_request(
-            client, "post", f"{api_url}/chat/update", json=payload
+            client, "post", f"{api_url}/chats/update", json=payload
         )
         return True
 
 
-async def send_poll_to_server(api_url, number, name, values):
-    """
-    Sends a poll message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        name (str): The name/question of the poll.
-        values (List[str]): The options for the poll.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client() as client:
-        payload = {"number": number, "name": name, "values": values}
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def send_poll_to_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    number: str,
+    name: str,
+    values: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Sends a poll message for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {
+            "sessionName": session_name,
+            "number": number,
+            "name": name,
+            "values": values,
+        }
         return await _make_request(
-            client, "post", f"{api_url}/send-poll", json=payload
+            client, "post", f"{api_url}/send/poll", json=payload
         )
 
 
-async def download_media_from_server(api_url, message):
-    """
-    Downloads media from a message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        message (Dict[str, Any]): The raw message object containing the media.
-
-    Returns:
-        Optional[bytes]: The raw media data as bytes.
-
-    Raises:
-        PyWaBotConnectionError: If the download fails due to a network error.
-    """
+async def download_media_from_server(
+    api_url: str, api_key: str, session_name: str, message: Dict[str, Any]
+) -> Optional[bytes]:
+    """Downloads media from a message for a specific session."""
     try:
-        async with _get_api_client() as client:
-            payload = {"message": message}
+        async with _get_api_client(api_key) as client:
+            payload = {"sessionName": session_name, "message": message}
             response = await client.post(
-                f"{api_url}/download-media", json=payload
+                f"{api_url}/download/media", json=payload
             )
             response.raise_for_status()
             return response.content
@@ -345,213 +305,124 @@ async def download_media_from_server(api_url, message):
         raise PyWaBotConnectionError(f"Failed to download media: {e}") from e
 
 
-async def send_reaction_to_server(api_url, jid, message_id, from_me, emoji):
-    """
-    Sends a reaction to a message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The chat JID where the message is.
-        message_id (str): The ID of the message to react to.
-        from_me (bool): Whether the message was sent by the bot.
-        emoji (str): The emoji to react with.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client() as client:
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def send_reaction_to_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    jid: str,
+    message_id: str,
+    from_me: bool,
+    emoji: str,
+) -> Optional[Dict[str, Any]]:
+    """Sends a reaction to a message for a specific session."""
+    async with _get_api_client(api_key) as client:
         payload = {
+            "sessionName": session_name,
             "jid": jid,
             "messageId": message_id,
             "fromMe": from_me,
             "emoji": emoji,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send-reaction", json=payload
+            client, "post", f"{api_url}/send/reaction", json=payload
         )
 
 
-async def update_group_participants(api_url, jid, action, participants):
-    """
-    Updates participants in a group (add, remove, etc.).
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The group's JID.
-        action (str): The action to perform ('add', 'remove', 'promote').
-        participants (List[str]): A list of participant JIDs.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client() as client:
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def update_group_participants(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    jid: str,
+    action: str,
+    participants: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Updates participants in a group for a specific session."""
+    async with _get_api_client(api_key) as client:
         payload = {
+            "sessionName": session_name,
             "jid": jid,
             "action": action,
             "participants": participants,
         }
         return await _make_request(
-            client, "post", f"{api_url}/group-participants-update", json=payload
+            client, "post", f"{api_url}/groups/{jid}/participants", json=payload
         )
 
 
-async def send_link_preview_to_server(api_url, number, url, text):
-    """
-    Sends a message with a link preview.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        url (str): The URL to preview.
-        text (str): The text to send with the preview.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client() as client:
-        payload = {"number": number, "url": url, "text": text}
-        return await _make_request(
-            client, "post", f"{api_url}/send-link-preview", json=payload
-        )
-
-
-async def send_gif_to_server(api_url, number, gif):
-    """
-    Sends a GIF message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        gif (types.Gif): The GIF object to send.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client(timeout=30.0) as client:
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def send_link_preview_to_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    number: str,
+    url: str,
+    text: str,
+) -> Optional[Dict[str, Any]]:
+    """Sends a message with a link preview for a specific session."""
+    async with _get_api_client(api_key) as client:
         payload = {
+            "sessionName": session_name,
             "number": number,
-            "message": {
-                "video": {"url": gif.url},
-                "caption": gif.caption,
-                "gifPlayback": True,
-            },
+            "url": url,
+            "text": text,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send-message", json=payload
+            client, "post", f"{api_url}/send/link-preview", json=payload
         )
 
 
-async def send_image_to_server(api_url, number, image):
-    """
-    Sends an image message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        image (types.Image): The image object to send.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client(timeout=30.0) as client:
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def send_media_to_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    number: str,
+    message_payload: Dict[str, Any],
+    timeout: int,
+) -> Optional[Dict[str, Any]]:
+    """Generic function to send media messages for a specific session."""
+    async with _get_api_client(api_key, timeout=timeout) as client:
         payload = {
+            "sessionName": session_name,
             "number": number,
-            "message": {
-                "image": {"url": image.url},
-                "caption": image.caption,
-            },
+            "message": message_payload,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send-message", json=payload
+            client, "post", f"{api_url}/send/message", json=payload
         )
 
 
-async def send_audio_to_server(api_url, number, audio):
-    """
-    Sends an audio message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        audio (types.Audio): The audio object to send.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client(timeout=30.0) as client:
-        payload = {
-            "number": number,
-            "message": {
-                "audio": {"url": audio.url},
-                "mimetype": audio.mimetype,
-            },
-        }
-        return await _make_request(
-            client, "post", f"{api_url}/send-message", json=payload
-        )
-
-
-async def send_video_to_server(api_url, number, video):
-    """
-    Sends a video message.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        number (str): The recipient's JID.
-        video (types.Video): The video object to send.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data.
-    """
-    async with _get_api_client(timeout=60.0) as client:
-        payload = {
-            "number": number,
-            "message": {
-                "video": {"url": video.url},
-                "caption": video.caption,
-            },
-        }
-        return await _make_request(
-            client, "post", f"{api_url}/send-message", json=payload
-        )
-
-
-async def pin_unpin_chat_on_server(api_url, jid, pin):
-    """
-    Pins or unpins a chat.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        jid (str): The chat JID to pin or unpin.
-        pin (bool): True to pin, False to unpin.
-
-    Returns:
-        bool: True if the action was successful.
-    """
-    async with _get_api_client() as client:
-        payload = {"jid": jid, "pin": pin}
+async def pin_unpin_chat_on_server(
+    api_url: str, api_key: str, session_name: str, jid: str, pin: bool
+) -> bool:
+    """Pins or unpins a chat for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {"sessionName": session_name, "jid": jid, "pin": pin}
         await _make_request(
-            client, "post", f"{api_url}/chat/pin", json=payload
+            client, "post", f"{api_url}/chats/pin", json=payload
         )
         return True
 
 
-async def create_group_on_server(api_url, title, participants):
-    """
-    Creates a new group.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        title (str): The title of the new group.
-        participants (List[str]): A list of participant JIDs to add.
-
-    Returns:
-        Optional[Dict[str, Any]]: The API response data for the new group.
-    """
-    async with _get_api_client() as client:
-        payload = {"title": title, "participants": participants}
+# pylint: disable=too-many-arguments, too-many-positional-arguments
+async def create_group_on_server(
+    api_url: str,
+    api_key: str,
+    session_name: str,
+    title: str,
+    participants: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Creates a new group for a specific session."""
+    async with _get_api_client(api_key) as client:
+        payload = {
+            "sessionName": session_name,
+            "title": title,
+            "participants": participants,
+        }
         response = await _make_request(
-            client, "post", f"{api_url}/group-create", json=payload
+            client, "post", f"{api_url}/groups/create", json=payload
         )
         return (
             response.get('data')
@@ -560,34 +431,20 @@ async def create_group_on_server(api_url, title, participants):
         )
 
 
-async def list_sessions(api_url):
-    """
-    Lists all active sessions on the server.
-
-    Args:
-        api_url (str): The base URL of the API server.
-
-    Returns:
-        List[str]: A list of active session names.
-    """
-    async with _get_api_client() as client:
-        response = await _make_request(client, "get", f"{api_url}/sessions")
-        return response.get('sessions', []) if response else []
+async def list_sessions(
+    api_url: str, api_key: str
+) -> Optional[Dict[str, Any]]:
+    """Lists all available sessions on the server."""
+    async with _get_api_client(api_key) as client:
+        return await _make_request(client, "get", f"{api_url}/sessions/list")
 
 
-async def delete_session(api_url, session_name):
-    """
-    Deletes a session from the server.
-
-    Args:
-        api_url (str): The base URL of the API server.
-        session_name (str): The name of the session to delete.
-
-    Returns:
-        bool: True if the deletion was successful.
-    """
-    async with _get_api_client() as client:
+async def delete_session(
+    api_url: str, api_key: str, session_name: str
+) -> bool:
+    """Deletes a specific session from the server."""
+    async with _get_api_client(api_key) as client:
         response = await _make_request(
-            client, "delete", f"{api_url}/sessions/{session_name}"
+            client, "delete", f"{api_url}/sessions/{session_name}/delete"
         )
         return response.get('success', False) if response else False
