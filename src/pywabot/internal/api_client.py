@@ -8,7 +8,8 @@ to ensure proper multi-session isolation.
 """
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx  # pylint: disable=import-error
 
@@ -23,19 +24,17 @@ from .. import types
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SessionContext:
+    """A data class to hold session-specific information."""
+    api_url: str
+    api_key: str
+    session_name: str
+
+
 def _get_api_client(api_key: str, **kwargs) -> httpx.AsyncClient:
     """
     Creates and configures an httpx.AsyncClient with the necessary API key.
-
-    Args:
-        api_key (str): The API key for the session.
-        **kwargs: Additional keyword arguments to pass to the AsyncClient.
-
-    Returns:
-        httpx.AsyncClient: A configured asynchronous HTTP client.
-
-    Raises:
-        APIKeyMissingError: If the api_key is not provided.
     """
     if not api_key:
         raise APIKeyMissingError("An API Key must be provided for the request.")
@@ -48,20 +47,6 @@ async def _make_request(
 ) -> Optional[Dict[str, Any]]:
     """
     Makes an API request and handles responses and errors.
-
-    Args:
-        client (httpx.AsyncClient): The HTTP client to use for the request.
-        method (str): The HTTP method (e.g., 'get', 'post').
-        url (str): The URL for the request.
-        **kwargs: Additional keyword arguments for the request.
-
-    Returns:
-        Optional[Dict[str, Any]]: The JSON response from the API, or None.
-
-    Raises:
-        AuthenticationError: For 401 or 403 status codes.
-        APIError: For other HTTP status errors.
-        PyWaBotConnectionError: For network-related errors.
     """
     try:
         logger.debug("Making API request: %s %s", method.upper(), url)
@@ -86,7 +71,7 @@ async def _make_request(
             response_data = e.response.json()
             error_message = response_data.get('message', e.response.text)
         except json.JSONDecodeError:
-            pass  # Response is not valid JSON, use the raw text
+            pass
 
         logger.error(
             "API request failed: Status %d - %s",
@@ -106,14 +91,14 @@ async def _make_request(
 
 
 async def start_server_session(
-    api_url: str, api_key: str, session_name: str
-) -> tuple[bool, str]:
+    context: SessionContext,
+) -> Tuple[bool, str]:
     """Starts a new session on the Baileys server."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         try:
-            payload = {"sessionName": session_name}
+            payload = {"sessionName": context.session_name}
             await _make_request(
-                client, "post", f"{api_url}/sessions/start", json=payload
+                client, "post", f"{context.api_url}/sessions/start", json=payload
             )
             return True, "Session initialized successfully."
         except APIError as e:
@@ -124,14 +109,12 @@ async def start_server_session(
             return False, str(e)
 
 
-async def get_server_status(
-    api_url: str, api_key: str, session_name: str
-) -> str:
+async def get_server_status(context: SessionContext) -> str:
     """Retrieves the status of a specific session."""
     try:
-        async with _get_api_client(api_key) as client:
+        async with _get_api_client(context.api_key) as client:
             data = await _make_request(
-                client, "get", f"{api_url}/sessions/{session_name}/status"
+                client, "get", f"{context.api_url}/sessions/{context.session_name}/status"
             )
             return data.get('status', 'offline') if data else 'offline'
     except (PyWaBotConnectionError, APIKeyMissingError, APIError):
@@ -139,31 +122,28 @@ async def get_server_status(
 
 
 async def request_pairing_code(
-    api_url: str, api_key: str, phone_number: str, session_name: str
+    context: SessionContext, phone_number: str
 ) -> Optional[str]:
     """Requests a pairing code for a new device."""
-    async with _get_api_client(api_key, timeout=120.0) as client:
-        payload = {"number": phone_number, "sessionName": session_name}
+    async with _get_api_client(context.api_key, timeout=120.0) as client:
+        payload = {"number": phone_number, "sessionName": context.session_name}
         data = await _make_request(
-            client, "post", f"{api_url}/sessions/pair-code", json=payload
+            client, "post", f"{context.api_url}/sessions/pair-code", json=payload
         )
         return data.get('code') if data else None
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_message_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     number: str,
     message: str,
     reply_chat: Optional[types.WaMessage] = None,
     mentions: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Sends a text message via the API for a specific session."""
-    async with _get_api_client(api_key, timeout=30.0) as client:
+    async with _get_api_client(context.api_key, timeout=30.0) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "number": number,
             "message": message,
         }
@@ -176,128 +156,116 @@ async def send_message_to_server(
         if mentions:
             payload["mentions"] = mentions
         return await _make_request(
-            client, "post", f"{api_url}/send/message", json=payload
+            client, "post", f"{context.api_url}/send/message", json=payload
         )
 
 
 async def update_presence_on_server(
-    api_url: str, api_key: str, session_name: str, jid: str, state: str
+    context: SessionContext, jid: str, state: str
 ) -> bool:
     """Updates the bot's presence status for a specific session."""
-    async with _get_api_client(api_key) as client:
-        payload = {"sessionName": session_name, "jid": jid, "state": state}
+    async with _get_api_client(context.api_key) as client:
+        payload = {"sessionName": context.session_name, "jid": jid, "state": state}
         await _make_request(
-            client, "post", f"{api_url}/presence/update", json=payload
+            client, "post", f"{context.api_url}/presence/update", json=payload
         )
         return True
 
 
 async def get_group_metadata(
-    api_url: str, api_key: str, session_name: str, jid: str
+    context: SessionContext, jid: str
 ) -> Optional[Dict[str, Any]]:
     """Retrieves metadata for a specific group for a specific session."""
-    async with _get_api_client(api_key) as client:
-        params = {"sessionName": session_name}
+    async with _get_api_client(context.api_key) as client:
+        params = {"sessionName": context.session_name}
         return await _make_request(
-            client, "get", f"{api_url}/groups/{jid}/metadata", params=params
+            client, "get", f"{context.api_url}/groups/{jid}/metadata", params=params
         )
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def forward_message_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     jid: str,
     message_obj: Dict[str, Any],
 ) -> bool:
     """Forwards a message to a recipient for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "jid": jid,
             "message": message_obj,
         }
         await _make_request(
-            client, "post", f"{api_url}/forward/message", json=payload
+            client, "post", f"{context.api_url}/forward/message", json=payload
         )
         return True
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def edit_message_on_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     jid: str,
     message_id: str,
     new_text: str,
 ) -> bool:
     """Edits a previously sent message for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "jid": jid,
             "messageId": message_id,
             "newText": new_text,
         }
         await _make_request(
-            client, "post", f"{api_url}/edit/message", json=payload
+            client, "post", f"{context.api_url}/edit/message", json=payload
         )
         return True
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def update_chat_on_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     jid: str,
     action: str,
     message: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Updates a chat's state for a specific session."""
-    async with _get_api_client(api_key) as client:
-        payload = {"sessionName": session_name, "jid": jid, "action": action}
+    async with _get_api_client(context.api_key) as client:
+        payload = {"sessionName": context.session_name, "jid": jid, "action": action}
         if message:
             payload["message"] = message
         await _make_request(
-            client, "post", f"{api_url}/chats/update", json=payload
+            client, "post", f"{context.api_url}/chats/update", json=payload
         )
         return True
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_poll_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     number: str,
     name: str,
     values: List[str],
 ) -> Optional[Dict[str, Any]]:
     """Sends a poll message for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "number": number,
             "name": name,
             "values": values,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send/poll", json=payload
+            client, "post", f"{context.api_url}/send/poll", json=payload
         )
 
 
 async def download_media_from_server(
-    api_url: str, api_key: str, session_name: str, message: Dict[str, Any]
+    context: SessionContext, message: Dict[str, Any]
 ) -> Optional[bytes]:
     """Downloads media from a message for a specific session."""
     try:
-        async with _get_api_client(api_key) as client:
-            payload = {"sessionName": session_name, "message": message}
+        async with _get_api_client(context.api_key) as client:
+            payload = {"sessionName": context.session_name, "message": message}
             response = await client.post(
-                f"{api_url}/download/media", json=payload
+                f"{context.api_url}/download/media", json=payload
             )
             response.raise_for_status()
             return response.content
@@ -305,124 +273,109 @@ async def download_media_from_server(
         raise PyWaBotConnectionError(f"Failed to download media: {e}") from e
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_reaction_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     jid: str,
     message_id: str,
     from_me: bool,
     emoji: str,
 ) -> Optional[Dict[str, Any]]:
     """Sends a reaction to a message for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "jid": jid,
             "messageId": message_id,
             "fromMe": from_me,
             "emoji": emoji,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send/reaction", json=payload
+            client, "post", f"{context.api_url}/send/reaction", json=payload
         )
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def update_group_participants(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     jid: str,
     action: str,
     participants: List[str],
 ) -> Optional[Dict[str, Any]]:
     """Updates participants in a group for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "jid": jid,
             "action": action,
             "participants": participants,
         }
         return await _make_request(
-            client, "post", f"{api_url}/groups/{jid}/participants", json=payload
+            client, "post", f"{context.api_url}/groups/{jid}/participants", json=payload
         )
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_link_preview_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     number: str,
     url: str,
     text: str,
 ) -> Optional[Dict[str, Any]]:
     """Sends a message with a link preview for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "number": number,
             "url": url,
             "text": text,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send/link-preview", json=payload
+            client, "post", f"{context.api_url}/send/link-preview", json=payload
         )
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def send_media_to_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     number: str,
     message_payload: Dict[str, Any],
     timeout: int,
 ) -> Optional[Dict[str, Any]]:
     """Generic function to send media messages for a specific session."""
-    async with _get_api_client(api_key, timeout=timeout) as client:
+    async with _get_api_client(context.api_key, timeout=timeout) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "number": number,
             "message": message_payload,
         }
         return await _make_request(
-            client, "post", f"{api_url}/send/message", json=payload
+            client, "post", f"{context.api_url}/send/message", json=payload
         )
 
 
 async def pin_unpin_chat_on_server(
-    api_url: str, api_key: str, session_name: str, jid: str, pin: bool
+    context: SessionContext, jid: str, pin: bool
 ) -> bool:
     """Pins or unpins a chat for a specific session."""
-    async with _get_api_client(api_key) as client:
-        payload = {"sessionName": session_name, "jid": jid, "pin": pin}
+    async with _get_api_client(context.api_key) as client:
+        payload = {"sessionName": context.session_name, "jid": jid, "pin": pin}
         await _make_request(
-            client, "post", f"{api_url}/chats/pin", json=payload
+            client, "post", f"{context.api_url}/chats/pin", json=payload
         )
         return True
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 async def create_group_on_server(
-    api_url: str,
-    api_key: str,
-    session_name: str,
+    context: SessionContext,
     title: str,
     participants: List[str],
 ) -> Optional[Dict[str, Any]]:
     """Creates a new group for a specific session."""
-    async with _get_api_client(api_key) as client:
+    async with _get_api_client(context.api_key) as client:
         payload = {
-            "sessionName": session_name,
+            "sessionName": context.session_name,
             "title": title,
             "participants": participants,
         }
         response = await _make_request(
-            client, "post", f"{api_url}/groups/create", json=payload
+            client, "post", f"{context.api_url}/groups/create", json=payload
         )
         return (
             response.get('data')
