@@ -98,7 +98,7 @@ async def start_server_session(
         try:
             payload = {"sessionName": context.session_name}
             await _make_request(
-                client, "post", f"{context.api_url}/sessions/start", json=payload
+                client, "post", f"{context.api_url}/start-session", json=payload
             )
             return True, "Session initialized successfully."
         except APIError as e:
@@ -113,9 +113,9 @@ async def get_server_status(context: SessionContext) -> str:
     """Retrieves the status of a specific session."""
     try:
         async with _get_api_client(context.api_key) as client:
-            data = await _make_request(
-                client, "get", f"{context.api_url}/sessions/{context.session_name}/status"
-            )
+            # The server uses the session from the last /start-session call
+            # associated with this API key.
+            data = await _make_request(client, "get", f"{context.api_url}/status")
             return data.get('status', 'offline') if data else 'offline'
     except (PyWaBotConnectionError, APIKeyMissingError, APIError):
         return 'offline'
@@ -128,7 +128,7 @@ async def request_pairing_code(
     async with _get_api_client(context.api_key, timeout=120.0) as client:
         payload = {"number": phone_number, "sessionName": context.session_name}
         data = await _make_request(
-            client, "post", f"{context.api_url}/sessions/pair-code", json=payload
+            client, "post", f"{context.api_url}/pair-code", json=payload
         )
         return data.get('code') if data else None
 
@@ -156,7 +156,7 @@ async def send_message_to_server(
         if mentions:
             payload["mentions"] = mentions
         return await _make_request(
-            client, "post", f"{context.api_url}/send/message", json=payload
+            client, "post", f"{context.api_url}/send-message", json=payload
         )
 
 
@@ -167,7 +167,7 @@ async def update_presence_on_server(
     async with _get_api_client(context.api_key) as client:
         payload = {"sessionName": context.session_name, "jid": jid, "state": state}
         await _make_request(
-            client, "post", f"{context.api_url}/presence/update", json=payload
+            client, "post", f"{context.api_url}/presence-update", json=payload
         )
         return True
 
@@ -177,9 +177,9 @@ async def get_group_metadata(
 ) -> Optional[Dict[str, Any]]:
     """Retrieves metadata for a specific group for a specific session."""
     async with _get_api_client(context.api_key) as client:
-        params = {"sessionName": context.session_name}
+        params = {"sessionName": context.session_name, "jid": jid}
         return await _make_request(
-            client, "get", f"{context.api_url}/groups/{jid}/metadata", params=params
+            client, "get", f"{context.api_url}/group-metadata", params=params
         )
 
 
@@ -196,7 +196,7 @@ async def forward_message_to_server(
             "message": message_obj,
         }
         await _make_request(
-            client, "post", f"{context.api_url}/forward/message", json=payload
+            client, "post", f"{context.api_url}/forward-message", json=payload
         )
         return True
 
@@ -216,7 +216,7 @@ async def edit_message_on_server(
             "newText": new_text,
         }
         await _make_request(
-            client, "post", f"{context.api_url}/edit/message", json=payload
+            client, "post", f"{context.api_url}/edit-message", json=payload
         )
         return True
 
@@ -233,7 +233,7 @@ async def update_chat_on_server(
         if message:
             payload["message"] = message
         await _make_request(
-            client, "post", f"{context.api_url}/chats/update", json=payload
+            client, "post", f"{context.api_url}/chat/update", json=payload
         )
         return True
 
@@ -253,7 +253,7 @@ async def send_poll_to_server(
             "values": values,
         }
         return await _make_request(
-            client, "post", f"{context.api_url}/send/poll", json=payload
+            client, "post", f"{context.api_url}/send-poll", json=payload
         )
 
 
@@ -265,7 +265,7 @@ async def download_media_from_server(
         async with _get_api_client(context.api_key) as client:
             payload = {"sessionName": context.session_name, "message": message}
             response = await client.post(
-                f"{context.api_url}/download/media", json=payload
+                f"{context.api_url}/download-media", json=payload
             )
             response.raise_for_status()
             return response.content
@@ -290,7 +290,7 @@ async def send_reaction_to_server(
             "emoji": emoji,
         }
         return await _make_request(
-            client, "post", f"{context.api_url}/send/reaction", json=payload
+            client, "post", f"{context.api_url}/send-reaction", json=payload
         )
 
 
@@ -309,7 +309,7 @@ async def update_group_participants(
             "participants": participants,
         }
         return await _make_request(
-            client, "post", f"{context.api_url}/groups/{jid}/participants", json=payload
+            client, "post", f"{context.api_url}/group-participants-update", json=payload
         )
 
 
@@ -328,7 +328,7 @@ async def send_link_preview_to_server(
             "text": text,
         }
         return await _make_request(
-            client, "post", f"{context.api_url}/send/link-preview", json=payload
+            client, "post", f"{context.api_url}/send-link-preview", json=payload
         )
 
 
@@ -346,7 +346,7 @@ async def send_media_to_server(
             "message": message_payload,
         }
         return await _make_request(
-            client, "post", f"{context.api_url}/send/message", json=payload
+            client, "post", f"{context.api_url}/send-message", json=payload
         )
 
 
@@ -357,7 +357,7 @@ async def pin_unpin_chat_on_server(
     async with _get_api_client(context.api_key) as client:
         payload = {"sessionName": context.session_name, "jid": jid, "pin": pin}
         await _make_request(
-            client, "post", f"{context.api_url}/chats/pin", json=payload
+            client, "post", f"{context.api_url}/chat/pin", json=payload
         )
         return True
 
@@ -375,7 +375,7 @@ async def create_group_on_server(
             "participants": participants,
         }
         response = await _make_request(
-            client, "post", f"{context.api_url}/groups/create", json=payload
+            client, "post", f"{context.api_url}/group-create", json=payload
         )
         return (
             response.get('data')
@@ -389,7 +389,7 @@ async def list_sessions(
 ) -> Optional[Dict[str, Any]]:
     """Lists all available sessions on the server."""
     async with _get_api_client(api_key) as client:
-        return await _make_request(client, "get", f"{api_url}/sessions/list")
+        return await _make_request(client, "get", f"{api_url}/sessions")
 
 
 async def delete_session(
@@ -398,6 +398,6 @@ async def delete_session(
     """Deletes a specific session from the server."""
     async with _get_api_client(api_key) as client:
         response = await _make_request(
-            client, "delete", f"{api_url}/sessions/{session_name}/delete"
+            client, "delete", f"{api_url}/sessions/{session_name}"
         )
         return response.get('success', False) if response else False
