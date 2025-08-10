@@ -211,7 +211,7 @@ To see all sessions currently running on the server under your API key:
 import asyncio
 from pywabot import PyWaBot
 
-API_KEY = "your_api_key"
+API_KEY = "API_TOKEN"
 
 async def list_active_sessions():
     """Fetches and prints all active session names."""
@@ -220,7 +220,7 @@ async def list_active_sessions():
         sessions = await PyWaBot.list_sessions(api_key=API_KEY)
         if sessions:
             print("Found active sessions:")
-            for session_name in sessions:
+            for session_name in sessions.get("sessions"):
                 print(f"- {session_name}")
         else:
             print("No active sessions found.")
@@ -229,6 +229,7 @@ async def list_active_sessions():
 
 if __name__ == "__main__":
     asyncio.run(list_active_sessions())
+
 ```
 
 ### Delete a Session

@@ -9,7 +9,7 @@ import base64
 import binascii
 import inspect
 import functools
-from typing import Callable, Coroutine, Any, Dict, Optional, List
+from typing import Callable, Coroutine, Any, Dict, Optional, List, Tuple
 
 from .internal import api_client, websocket_client
 from . import types
@@ -61,15 +61,13 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
     """
     An asynchronous Python wrapper for the Baileys WhatsApp API.
     """
-    def __init__(self, session_name: str, api_key: str, handle_media: bool = True):
+    def __init__(self, session_name: str, api_key: str):
         """
         Initializes the PyWaBot instance.
 
         Args:
             session_name (str): The name for the WhatsApp session.
             api_key (str): The API key for authentication.
-            handle_media (bool): If True, the bot will automatically reply to
-                media messages. Set to False to disable this behavior.
 
         Raises:
             ValueError: If `session_name` or `api_key` is not provided.
@@ -81,7 +79,6 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
 
         self.session_name = session_name
         self.api_key = api_key
-        self.handle_media = handle_media
         self.api_url = _get_api_url()
 
         # Create a session context for API calls
@@ -95,8 +92,14 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         self.is_connected = False
         self._command_handlers: Dict[str, MessageHandler] = {}
         self._default_handler: Optional[MessageHandler] = None
-        self._location_handler: Optional[MessageHandler] = None
         self._user_states: Dict[str, Any] = {}
+        self._image_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._video_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._audio_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._document_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._sticker_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._contact_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
+        self._location_handlers: List[Tuple[MessageHandler, Optional[Any]]] = []
 
     def set_user_state(self, chat_id: str, state: Any):
         """
@@ -185,132 +188,165 @@ class PyWaBot:  # pylint: disable=too-many-instance-attributes, too-many-public-
         self._default_handler = wrapper
         return func
 
-    def on_location(self, func: MessageHandler) -> MessageHandler:
-        """
-        A decorator to register a handler for incoming location messages.
-        """
-        sig = inspect.signature(func)
-        num_params = len(sig.parameters)
+    def on_location(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for location messages."""
+        return self._create_handler_decorator(
+            self._location_handlers, "location", user_state
+        )
 
-        if num_params not in [1, 2]:
-            raise TypeError(
-                f"Location handler must accept 1 or 2 arguments, "
-                f"but it accepts {num_params}."
-            )
+    def _create_handler_decorator(
+        self,
+        handler_list: List[Tuple[MessageHandler, Optional[Any]]],
+        media_type: str,
+        user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """A factory to create decorators for media handlers."""
+        def wrapper(func: MessageHandler) -> MessageHandler:
+            sig = inspect.signature(func)
+            num_params = len(sig.parameters)
 
-        @functools.wraps(func)
-        async def wrapper(_: Any, message: types.WaMessage) -> None:
-            if num_params == 1:
-                await func(message)
-            else:
-                await func(_, message)
-
-        self._location_handler = wrapper
-        return func
-
-    async def _handle_media_message(self, msg: types.WaMessage):  # pylint: disable=too-many-locals
-        """Sends an informative reply for various media types."""
-        reply_text = ""
-        if msg.image:
-            caption = msg.image.get('caption', 'No caption')
-            mimetype = msg.image.get('mimetype')
-            reply_text = (
-                f"🖼️ *Image Received*\n\n"
-                f"- *Caption:* {caption}\n"
-                f"- *Mimetype:* {mimetype}"
-            )
-        elif msg.video:
-            caption = msg.video.get('caption', 'No caption')
-            duration = msg.video.get('seconds')
-            reply_text = (
-                f"📹 *Video Received*\n\n"
-                f"- *Caption:* {caption}\n"
-                f"- *Duration:* {duration}s"
-            )
-        elif msg.audio:
-            is_ptt = 'Voice Note' if msg.audio.get('ptt') else 'Audio File'
-            duration = msg.audio.get('seconds')
-            reply_text = (
-                f"🎵 *Audio Received*\n\n"
-                f"- *Type:* {is_ptt}\n"
-                f"- *Duration:* {duration}s"
-            )
-        elif msg.document:
-            filename = msg.document.get('fileName')
-            mimetype = msg.document.get('mimetype')
-            reply_text = (
-                f"📄 *Document Received*\n\n"
-                f"- *Filename:* {filename}\n"
-                f"- *Mimetype:* {mimetype}"
-            )
-        elif msg.location:
-            loc = msg.get_location()
-            if loc:
-                maps_url = (
-                    f"https://maps.google.com/?q={loc['latitude']},"
-                    f"{loc['longitude']}"
+            if num_params not in [1, 2]:
+                raise TypeError(
+                    f"Handler for {media_type} must accept 1 or 2 arguments, "
+                    f"but it accepts {num_params}."
                 )
-                comment = loc.get('comment') or 'N/A'
-                reply_text = (
-                    f"📍 *Location Received*\n\n"
-                    f"- *Coordinates:* {loc['latitude']:.5f}, {loc['longitude']:.5f}\n"
-                    f"- *Details:* {comment}\n"
-                    f"- *View on Maps:* {maps_url}"
-                )
-        elif msg.live_location:
-            try:
-                live_loc = msg.get_live_location()
-                if live_loc:
-                    lat = live_loc.get('latitude')
-                    lon = live_loc.get('longitude')
-                    maps_url = f"https://maps.google.com/?q={lat},{lon}" if lat and lon else "N/A"
-                    caption = live_loc.get('caption') or 'N/A'
-                    speed = live_loc.get('speed', 0)
-                    reply_text = (
-                        f"🛰️ *Live Location Update*\n\n"
-                        f"- *Caption:* {caption}\n"
-                        f"- *Speed:* {speed:.2f} m/s\n"
-                        f"- *View on Maps:* {maps_url}"
-                    )
-            except (TypeError, KeyError) as e:
-                logger.error("Error processing live location message: %s", e)
 
-        if reply_text:
-            await self.send_message(msg.chat, reply_text, reply_chat=msg)
+            @functools.wraps(func)
+            async def inner_wrapper(_: Any, message: types.WaMessage) -> None:
+                if num_params == 1:
+                    await func(message)
+                else:
+                    await func(_, message)
+
+            handler_list.append((inner_wrapper, user_state))
+            return func
+        return wrapper
+
+    def on_image(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for image messages."""
+        return self._create_handler_decorator(
+            self._image_handlers, "image", user_state
+        )
+
+    def on_video(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for video messages."""
+        return self._create_handler_decorator(
+            self._video_handlers, "video", user_state
+        )
+
+    def on_audio(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for audio messages."""
+        return self._create_handler_decorator(
+            self._audio_handlers, "audio", user_state
+        )
+
+    def on_document(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for document messages."""
+        return self._create_handler_decorator(
+            self._document_handlers, "document", user_state
+        )
+
+    def on_sticker(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for sticker messages."""
+        return self._create_handler_decorator(
+            self._sticker_handlers, "sticker", user_state
+        )
+
+    def on_contact(
+        self, user_state: Optional[Any] = None
+    ) -> Callable[[MessageHandler], MessageHandler]:
+        """Decorator to register a handler for contact messages."""
+        return self._create_handler_decorator(
+            self._contact_handlers, "contact", user_state
+        )
+
+    async def _execute_stateful_handlers(
+        self,
+        handlers: List[Tuple[MessageHandler, Optional[Any]]],
+        message: types.WaMessage
+    ) -> bool:
+        """
+        Executes handlers that match the user's current state.
+        Prioritizes handlers with a specific state match. If none match,
+        executes handlers with no state requirement.
+        """
+        user_state = self.get_user_state(message.chat)
+
+        # First, look for a specific state match
+        for handler, required_state in handlers:
+            if required_state is not None and required_state == user_state:
+                await handler(self, message)
+                return True  # Specific handler found and executed
+
+        # If no specific state handler was found, run generic handlers
+        executed_generic = False
+        for handler, required_state in handlers:
+            if required_state is None:
+                await handler(self, message)
+                executed_generic = True
+
+        return executed_generic
 
     async def _process_incoming_message(self, raw_message: Dict[str, Any]):
-        """Processes incoming raw messages from the WebSocket."""
+        """
+        Processes incoming messages through a prioritized handler chain.
+        The chain stops as soon as a handler processes the message.
+        Priority: Media/Location -> Command -> Pure Text.
+        """
         msg = types.WaMessage(raw_message)
         if msg.from_me:
             return
 
-        handler_found = False
+        # Priority 1: Specific Media and Location Handlers (State-Aware)
+        media_handlers_map = {
+            'image': self._image_handlers,
+            'video': self._video_handlers,
+            'audio': self._audio_handlers,
+            'document': self._document_handlers,
+            'sticker': self._sticker_handlers,
+            'contact': self._contact_handlers,
+            'location': self._location_handlers,
+        }
+        for media_type, handlers in media_handlers_map.items():
+            if getattr(msg, media_type) and handlers:
+                if await self._execute_stateful_handlers(handlers, msg):
+                    return  # Stop propagation
+
+        # If the message was any kind of media, stop processing here.
+        if msg.is_media():
+            logger.debug("Media message ID %s was not handled.", msg.id)
+            return
+
+        # Priority 2: Command Handlers (for text-only messages)
         if msg.text:
             clean_text = msg.text.strip()
             for command, handler in self._command_handlers.items():
                 if clean_text.startswith(command):
                     await handler(self, msg)
-                    handler_found = True
-                    break
-        if handler_found:
-            return
+                    return  # Stop propagation
 
-        if msg.location and self._location_handler:
-            await self._location_handler(self, msg)
-            return
-
-        is_media = any([
-            msg.image, msg.video, msg.audio,
-            msg.document, msg.location, msg.live_location
-        ])
-        if is_media and self.handle_media:
-            await self._handle_media_message(msg)
-            handler_found = True
-
-        if not handler_found and self._default_handler:
+        # Priority 3: Pure Text Message Handler
+        if self._default_handler and msg.is_pure_text():
             await self._default_handler(self, msg)
+            return  # Stop propagation
+
+        logger.debug("No handler found for message ID %s.", msg.id)
 
     async def connect(self) -> bool:
+
+
         """
         Connects to the Baileys server and establishes a WhatsApp session.
         """

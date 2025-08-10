@@ -36,6 +36,9 @@ class WaMessage:
             self.message.get('conversation')
             or self.message.get('extendedTextMessage', {}).get('text')
             or ephemeral_msg.get('extendedTextMessage', {}).get('text')
+            or self.message.get('imageMessage', {}).get('caption')
+            or self.message.get('videoMessage', {}).get('caption')
+            or self.message.get('locationMessage', {}).get('comment')
         )
 
         self.location: Optional[Dict[str, Any]] = self.message.get(
@@ -50,6 +53,8 @@ class WaMessage:
         self.live_location: Optional[
             Dict[str, Any]
         ] = self.message.get('liveLocationMessage')
+        self.sticker: Optional[Dict[str, Any]] = self.message.get('stickerMessage')
+        self.contact: Optional[Dict[str, Any]] = self.message.get('contactMessage')
 
     def get_location(self) -> Optional[Dict[str, Any]]:
         """Extracts standard location data from the message."""
@@ -73,6 +78,22 @@ class WaMessage:
                 'sequence': self.live_location.get('sequenceNumber'),
             }
         return None
+
+    def is_media(self) -> bool:
+        """Checks if the message contains any media type."""
+        return any([
+            self.image, self.video, self.audio, self.document,
+            self.sticker, self.contact, self.location, self.live_location
+        ])
+
+    def is_pure_text(self) -> bool:
+        """
+        Checks if the message is purely text-based (not a caption for media).
+        """
+        return bool(
+            (self.message.get('conversation') or
+             self.message.get('extendedTextMessage')) and not self.is_media()
+        )
 
 
 class WaGroupMetadata:
