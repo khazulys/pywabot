@@ -5,7 +5,7 @@ import os
 from pywabot import PyWaBot
 
 bot = PyWaBot(
-    session_name="session_name", api_key="your api_key", handle_media=True
+    session_name="session_name", api_key="your api_key"
 )
 
 
